@@ -7,346 +7,207 @@
     android:padding="12dp">
 
     <TextView
-        android:id="@+id/textOpenCvStatus"
+        android:id="@+id/textStatusHeader"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="@string/status_processing"
+        android:text="@string/status_idle"
         android:textAppearance="?android:attr/textAppearanceMedium"
         android:textStyle="bold" />
 
-    <LinearLayout
+    <EditText
+        android:id="@+id/editRtspUrl"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
-        android:orientation="horizontal">
+        android:hint="@string/hint_rtsp_url"
+        android:imeOptions="actionDone"
+        android:inputType="textUri"
+        android:maxLines="1"
+        android:text="@string/default_rtsp_url" />
 
-        <Button
-            android:id="@+id/buttonLive"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="@string/action_live" />
-
-        <Button
-            android:id="@+id/buttonRecord"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
-            android:layout_weight="1"
-            android:text="@string/action_record" />
-
-        <Button
-            android:id="@+id/buttonReplay"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
-            android:layout_weight="1"
-            android:text="@string/action_replay" />
-
-        <Button
-            android:id="@+id/buttonResetTracking"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
-            android:layout_weight="1"
-            android:text="@string/action_reset_tracking" />
-    </LinearLayout>
-
-    <LinearLayout
+    <EditText
+        android:id="@+id/editUdpPort"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
-        android:orientation="horizontal">
+        android:ems="6"
+        android:hint="@string/hint_udp_port"
+        android:imeOptions="actionDone"
+        android:inputType="number"
+        android:maxLines="1"
+        android:text="@string/default_udp_port" />
 
-        <Button
-            android:id="@+id/buttonReplayPlayPause"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="@string/action_play" />
-
-        <Button
-            android:id="@+id/buttonReplayPrev"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
-            android:layout_weight="1"
-            android:text="@string/action_prev" />
-
-        <Button
-            android:id="@+id/buttonReplayNext"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
-            android:layout_weight="1"
-            android:text="@string/action_next" />
-
-        <Button
-            android:id="@+id/buttonReplaySpeed"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
-            android:layout_weight="1"
-            android:text="@string/action_speed_normal" />
-
-        <Button
-            android:id="@+id/buttonToggleDebug"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
-            android:layout_weight="1"
-            android:text="@string/action_hide_debug" />
-    </LinearLayout>
-
-    <LinearLayout
+    <HorizontalScrollView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
-        android:orientation="horizontal">
+        android:fillViewport="true"
+        android:scrollbars="none">
 
-        <Button
-            android:id="@+id/buttonSegmentationModel"
-            android:layout_width="0dp"
+        <LinearLayout
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="@string/action_model_default" />
+            android:orientation="horizontal">
 
-        <Button
-            android:id="@+id/buttonSegmentationBackend"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
-            android:layout_weight="1"
-            android:text="@string/action_backend_nnapi" />
+            <Button
+                android:id="@+id/buttonConnect"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/action_connect" />
 
-        <Button
-            android:id="@+id/buttonSetSegmentationRoi"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
-            android:layout_weight="1"
-            android:text="@string/action_set_roi" />
+            <Button
+                android:id="@+id/buttonRecord"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:text="@string/action_stop_record" />
 
-        <Button
-            android:id="@+id/buttonClearSegmentationRoi"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
-            android:layout_weight="1"
-            android:text="@string/action_clear_roi" />
-    </LinearLayout>
+            <Button
+                android:id="@+id/buttonAddMarker"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:text="@string/action_add_marker" />
 
-    <LinearLayout
+            <Button
+                android:id="@+id/buttonReplay"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:text="@string/action_replay" />
+
+            <Button
+                android:id="@+id/buttonDisconnect"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:text="@string/action_disconnect" />
+        </LinearLayout>
+    </HorizontalScrollView>
+
+    <Aquin.lubie.ui.SixteenNineFrameLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
-        android:orientation="horizontal">
+        android:background="#FF000000">
 
-        <Button
-            android:id="@+id/buttonToggle2d"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="@string/action_2d_on" />
-    </LinearLayout>
-
-    <FrameLayout
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_marginTop="8dp"
-        android:layout_weight="1">
-
-        <androidx.camera.view.PreviewView
-            android:id="@+id/cameraPreview"
+        <androidx.media3.ui.PlayerView
+            android:id="@+id/playerView"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:contentDescription="@string/preview_content_description"
-            app:implementationMode="compatible" />
+            android:contentDescription="@string/player_content_description"
+            app:resize_mode="fit"
+            app:show_buffering="when_playing"
+            app:surface_type="texture_view"
+            app:use_controller="false" />
 
         <ImageView
             android:id="@+id/replayImageView"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:contentDescription="@string/replay_content_description"
-            android:scaleType="centerCrop"
+            android:scaleType="fitCenter"
             android:visibility="gone" />
-
-        <LinearLayout
-            android:id="@+id/segmentationPreviewPanel"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="top|end"
-            android:layout_margin="8dp"
-            android:background="#AA000000"
-            android:orientation="horizontal"
-            android:padding="6dp">
-
-            <LinearLayout
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:orientation="vertical">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/label_seg_gray_preview"
-                    android:textColor="@android:color/white"
-                    android:textSize="12sp" />
-
-                <ImageView
-                    android:id="@+id/imageSegmentationGrayPreview"
-                    android:layout_width="144dp"
-                    android:layout_height="90dp"
-                    android:layout_marginTop="4dp"
-                    android:background="#33000000"
-                    android:contentDescription="@string/seg_gray_preview_content_description"
-                    android:scaleType="fitCenter" />
-            </LinearLayout>
-
-            <LinearLayout
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="6dp"
-                android:orientation="vertical">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/label_seg_overlay_preview"
-                    android:textColor="@android:color/white"
-                    android:textSize="12sp" />
-
-                <ImageView
-                    android:id="@+id/imageSegmentationOverlayPreview"
-                    android:layout_width="144dp"
-                    android:layout_height="90dp"
-                    android:layout_marginTop="4dp"
-                    android:background="#33000000"
-                    android:contentDescription="@string/seg_overlay_preview_content_description"
-                    android:scaleType="fitCenter" />
-            </LinearLayout>
-        </LinearLayout>
 
         <Aquin.lubie.ui.DetectionOverlayView
             android:id="@+id/overlayView"
             android:layout_width="match_parent"
             android:layout_height="match_parent" />
+    </Aquin.lubie.ui.SixteenNineFrameLayout>
+
+    <FrameLayout
+        android:id="@+id/replayTimelineContainer"
+        android:layout_width="match_parent"
+        android:layout_height="44dp"
+        android:layout_marginTop="8dp"
+        android:background="@drawable/bg_timeline_panel"
+        android:paddingStart="8dp"
+        android:paddingTop="4dp"
+        android:paddingEnd="8dp"
+        android:paddingBottom="4dp">
+
+        <SeekBar
+            android:id="@+id/seekReplayTimeline"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:max="1000"
+            android:progressTint="#FFFFFFFF"
+            android:thumbTint="#FFFFFFFF" />
+
+        <Aquin.lubie.ui.MarkerTimelineView
+            android:id="@+id/markerTimelineView"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:clickable="false"
+            android:focusable="false" />
     </FrameLayout>
 
-    <LinearLayout
+    <HorizontalScrollView
         android:layout_width="match_parent"
-        android:layout_height="240dp"
+        android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
-        android:baselineAligned="false"
-        android:orientation="horizontal">
+        android:fillViewport="true"
+        android:scrollbars="none">
 
-        <ScrollView
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:fillViewport="true">
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
 
-            <LinearLayout
+            <Button
+                android:id="@+id/buttonReplayPlayPause"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/action_play" />
+
+            <Button
+                android:id="@+id/buttonReplayPrev"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:text="@string/action_prev" />
+
+            <Button
+                android:id="@+id/buttonReplayNext"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:text="@string/action_next" />
+
+            <Button
+                android:id="@+id/buttonReplaySpeed"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:text="@string/action_speed_normal" />
+        </LinearLayout>
+    </HorizontalScrollView>
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="180dp"
+        android:layout_marginTop="8dp"
+        android:fillViewport="true">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/textPrimaryInfo"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical">
+                android:text="@string/label_primary_info"
+                android:textAppearance="?android:attr/textAppearanceSmall" />
 
-                <TextView
-                    android:id="@+id/textFrameInfo"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="@string/label_frame_info"
-                    android:textAppearance="?android:attr/textAppearanceSmall" />
-
-                <TextView
-                    android:id="@+id/textResult2d"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:text="@string/label_result_2d"
-                    android:textAppearance="?android:attr/textAppearanceSmall" />
-
-                <TextView
-                    android:id="@+id/textDebugInfo"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:text="@string/label_debug_info"
-                    android:textAppearance="?android:attr/textAppearanceSmall" />
-            </LinearLayout>
-        </ScrollView>
-
-        <ScrollView
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_marginStart="8dp"
-            android:layout_weight="1"
-            android:fillViewport="true">
-
-            <LinearLayout
+            <TextView
+                android:id="@+id/textSecondaryInfo"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical">
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="@string/label_params"
-                    android:textAppearance="?android:attr/textAppearanceMedium"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:id="@+id/labelIntensityRange"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:text="@string/label_intensity_range" />
-
-                <SeekBar
-                    android:id="@+id/seekIntensityRange"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:max="60" />
-
-                <TextView
-                    android:id="@+id/labelPupilMin"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:text="@string/label_pupil_min" />
-
-                <SeekBar
-                    android:id="@+id/seekPupilMin"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:max="250" />
-
-                <TextView
-                    android:id="@+id/labelPupilMax"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:text="@string/label_pupil_max" />
-
-                <SeekBar
-                    android:id="@+id/seekPupilMax"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:max="400" />
-
-                <TextView
-                    android:id="@+id/labelCannyThreshold"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:text="@string/label_canny_threshold" />
-
-                <SeekBar
-                    android:id="@+id/seekCannyThreshold"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:max="1000" />
-            </LinearLayout>
-        </ScrollView>
-    </LinearLayout>
+                android:layout_marginTop="6dp"
+                android:text="@string/label_secondary_info"
+                android:textAppearance="?android:attr/textAppearanceSmall" />
+        </LinearLayout>
+    </ScrollView>
 </LinearLayout>

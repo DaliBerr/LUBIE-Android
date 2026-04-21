@@ -1,15 +1,7 @@
 <resources>
     <string name="app_name">LUBIE</string>
-    <string name="opencv_ready">OpenCV ready</string>
-    <string name="opencv_failed">OpenCV init failed</string>
-    <string name="camera_ready">Camera ready</string>
-    <string name="camera_starting">Starting camera...</string>
-    <string name="camera_permission_required">Camera permission is required for live processing</string>
-    <string name="camera_unavailable">No available camera found</string>
-    <string name="camera_bind_failed">Failed to start camera preview</string>
-    <string name="camera_runtime_error">Camera analysis failed</string>
-    <string name="status_processing">Processing frame...</string>
-    <string name="status_no_detection">No pupil ellipse detected</string>
+    <string name="status_idle">Idle | tap Connect to start RTSP</string>
+    <string name="status_no_detection">No gaze sample yet</string>
     <string name="label_frame_info">Frame Info</string>
     <string name="label_result_2d">Results</string>
     <string name="label_debug_info">Debug Info</string>
@@ -18,15 +10,22 @@
     <string name="label_pupil_min">Pupil Min</string>
     <string name="label_pupil_max">Pupil Max</string>
     <string name="label_canny_threshold">Canny Threshold</string>
-    <string name="preview_content_description">Live camera preview</string>
+    <string name="label_primary_info">Primary Info</string>
+    <string name="label_secondary_info">Secondary Info</string>
+    <string name="hint_rtsp_url">RTSP URL</string>
+    <string name="hint_udp_port">UDP Port</string>
+    <string name="default_rtsp_url">rtsp://192.168.1.100:8554/live</string>
+    <string name="default_udp_port">5005</string>
+    <string name="player_content_description">Remote RTSP or demo video preview</string>
     <string name="replay_content_description">Replay frame preview</string>
     <string name="camera_mode_front">Front camera live analysis</string>
     <string name="camera_mode_back">Back camera live analysis</string>
-    <string name="action_live">Live</string>
+    <string name="action_connect">Connect</string>
     <string name="action_record">Record</string>
     <string name="action_stop_record">Stop Rec</string>
+    <string name="action_add_marker">Add Marker</string>
     <string name="action_replay">Replay</string>
-    <string name="action_reset_tracking">Reset</string>
+    <string name="action_disconnect">Disconnect</string>
     <string name="action_play">Play</string>
     <string name="action_pause">Pause</string>
     <string name="action_prev">Prev</string>
@@ -47,4 +46,10 @@
     <string name="label_seg_overlay_preview">Seg Overlay</string>
     <string name="seg_gray_preview_content_description">Segmentation grayscale ROI preview</string>
     <string name="seg_overlay_preview_content_description">Segmentation blended overlay preview</string>
+    <string name="message_invalid_rtsp">Please enter a valid RTSP URL.</string>
+    <string name="message_invalid_udp">Please enter a valid UDP port.</string>
+    <string name="message_demo_picker_hint">Demo mode unlocked. Pick a local video.</string>
+    <string name="message_marker_saved">Marker saved.</string>
+    <string name="message_marker_unavailable">Recording has not started yet.</string>
+    <string name="message_replay_unavailable">No recorded session available.</string>
 </resources>
