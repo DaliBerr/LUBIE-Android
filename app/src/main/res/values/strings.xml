@@ -12,6 +12,8 @@
     <string name="label_canny_threshold">Canny Threshold</string>
     <string name="label_primary_info">Primary Info</string>
     <string name="label_secondary_info">Secondary Info</string>
+    <string name="label_debug_log">Connection Log</string>
+    <string name="label_debug_log_empty">No logs yet</string>
     <string name="hint_rtsp_url">RTSP URL</string>
     <string name="hint_udp_port">UDP Port</string>
     <string name="default_rtsp_url">rtsp://192.168.1.100:8554/live</string>

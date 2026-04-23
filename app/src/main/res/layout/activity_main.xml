@@ -185,7 +185,7 @@
 
     <ScrollView
         android:layout_width="match_parent"
-        android:layout_height="180dp"
+        android:layout_height="220dp"
         android:layout_marginTop="8dp"
         android:fillViewport="true">
 
@@ -208,6 +208,26 @@
                 android:layout_marginTop="6dp"
                 android:text="@string/label_secondary_info"
                 android:textAppearance="?android:attr/textAppearanceSmall" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="@string/label_debug_log"
+                android:textAppearance="?android:attr/textAppearanceSmall"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/textDebugLog"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:background="#22000000"
+                android:padding="8dp"
+                android:text="@string/label_debug_log_empty"
+                android:textAppearance="?android:attr/textAppearanceSmall"
+                android:textIsSelectable="true"
+                android:typeface="monospace" />
         </LinearLayout>
     </ScrollView>
 </LinearLayout>

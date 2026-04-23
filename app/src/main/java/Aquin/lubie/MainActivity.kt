@@ -125,6 +125,7 @@ class MainActivity : ComponentActivity(), RemoteTrackingController.Listener {
         binding.textStatusHeader.text = buildHeaderText(state)
         binding.textPrimaryInfo.text = buildPrimaryInfo(state)
         binding.textSecondaryInfo.text = buildSecondaryInfo(state)
+        binding.textDebugLog.text = state.debugLog.ifBlank { getString(R.string.label_debug_log_empty) }
 
         val gaze = state.gazeSample.takeIf { it?.isDrawable() == true }
         binding.overlayView.updateRemoteOverlay(
@@ -344,6 +345,7 @@ class MainActivity : ComponentActivity(), RemoteTrackingController.Listener {
         binding.textStatusHeader.text = getString(R.string.status_idle)
         binding.textPrimaryInfo.text = getString(R.string.label_primary_info)
         binding.textSecondaryInfo.text = getString(R.string.label_secondary_info)
+        binding.textDebugLog.text = getString(R.string.label_debug_log_empty)
         binding.overlayView.clear(getString(R.string.status_idle))
         binding.markerTimelineView.clear()
         updateButtons(null)

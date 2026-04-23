@@ -20,6 +20,7 @@
 - 在 `RTSP URL` 输入框中填写树莓派 RTSP 地址，在 `UDP Port` 输入框中填写 gaze UDP 端口。
 - 点击 `Connect` 后：
   - 页面使用 Media3 `PlayerView` 播放 RTSP 视频
+  - RTSP 当前使用 UDP 优先模式：先尝试 `RTP/UDP`，若 Media3 长时间收不到 UDP RTP 包，才会按其内部策略回退到 `RTP over RTSP/TCP`
   - UDP 开始接收 gaze JSON
   - 收到首帧后自动开始本地录制
 - 点击 `Add Marker` 可在当前录制 session 中写入一个 marker。
@@ -119,6 +120,23 @@
   - replay 30fps 时间基准
   - replay seek 定位逻辑
   - session duration 计算
+- 当前仓库根目录提供一个 PC 侧 RTSP 排查脚本：
+  - `rtsp_probe.py`
+  - 示例：`python rtsp_probe.py rtsp://192.168.1.48:8554/fpv --transport udp --show-sdp`
+  - 用途：打印 `OPTIONS / DESCRIBE / SETUP / PLAY / RTP` 日志，帮助区分路径错误、传输方式问题和服务端无数据问题
+- 当前仓库根目录还提供一个本地 RTSP 噪声源脚本：
+  - `rtsp_noise_server.py`
+  - 示例：`python rtsp_noise_server.py --port 8554 --path android_noise`
+  - 用途：在 PC 上启动一个内嵌 RTSP 服务端，优先把仓库根目录里的真实视频文件（默认优先 `test.mp4`）转成 `720p / 30fps / H.264 yuv420p` RTP 数据，再由 Python 按客户端 SETUP 请求输出为 `RTP/UDP` 或 `RTP over RTSP/TCP`；如果没有可用视频文件，则回退到随机噪声源，方便用安卓端直连排查“素材/编码问题”“推流端问题”还是“安卓接收端问题”
+  - 当前脚本默认 `--source auto`：
+    - 若根目录存在 `test.mp4`，会直接把它作为 RTSP 视频源
+    - 若通过 `--input-file <path>` 指定了本地视频，则优先使用指定文件
+    - 若没有可用真实视频，则自动回退到随机噪声源
+  - 如需强制使用真实视频，可使用：`python rtsp_noise_server.py --source file --input-file test.mp4`
+  - 如需强制使用随机噪声，可使用：`python rtsp_noise_server.py --source noise`
+  - 当前脚本默认会自动拉起一个本地 `ffplay` 预览窗口，方便把 PC 端预览流畅度和安卓端流畅度直接做对比
+  - 如需关闭本地预览窗口，可使用：`python rtsp_noise_server.py --port 8554 --path android_noise --no-preview`
+  - 当前内嵌 RTSP 服务端支持多个客户端同时连接，并支持 `RTP/UDP` 与 `RTP over RTSP/TCP` 两种视频传输方式；本地 `ffplay` 预览窗口默认使用 TCP，安卓端当前优先使用 UDP
 - 当前已验证以下命令可通过：
   - `./gradlew.bat :app:compileDebugKotlin`
   - `./gradlew.bat :app:testDebugUnitTest`

@@ -200,6 +200,7 @@ data class RemoteReplayFrame(
  * @param udpPort Current UDP port when applicable.
  * @param lastRecordedFrameId Latest recorded frame id when available.
  * @param lastRecordedTimestampNs Latest recorded timestamp when available.
+ * @param debugLog Recent controller diagnostic log lines for on-screen troubleshooting.
  * @return Immutable render state snapshot.
  */
 data class RemoteRenderState(
@@ -227,4 +228,5 @@ data class RemoteRenderState(
     val udpPort: Int? = null,
     val lastRecordedFrameId: Long? = null,
     val lastRecordedTimestampNs: Long? = null,
+    val debugLog: String = "",
 )
