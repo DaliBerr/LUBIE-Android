@@ -1,54 +1,64 @@
 package Aquin.lubie
 
 import Aquin.lubie.databinding.ActivityMainBinding
-import Aquin.lubie.tracking.model.EyeSourceMode
-import Aquin.lubie.tracking.model.EyeTrackingRenderState
-import Aquin.lubie.tracking.model.Pupil2DParams
-import Aquin.lubie.tracking.model.PupilObservation2D
-import Aquin.lubie.tracking.pipeline.EyeTrackingController
-import android.Manifest
-import android.content.pm.PackageManager
+import Aquin.lubie.remote.GazeSample
+import Aquin.lubie.remote.RemoteMode
+import Aquin.lubie.remote.RemoteRenderState
+import Aquin.lubie.remote.RemoteSourceKind
+import Aquin.lubie.remote.RemoteTrackingController
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
+import android.os.SystemClock
+import android.provider.OpenableColumns
 import android.view.View
 import android.widget.SeekBar
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.camera.view.PreviewView
-import androidx.core.content.ContextCompat
-import org.opencv.android.OpenCVLoader
+import java.util.ArrayDeque
 import java.util.Locale
+import kotlin.math.roundToInt
+
+private const val PREFS_NAME = "remote_stream_prefs"
+private const val PREF_RTSP_URL = "rtsp_url"
+private const val PREF_UDP_PORT = "udp_port"
+private const val DEMO_TAP_WINDOW_MS = 2_000L
+private const val DEMO_TAP_COUNT = 5
 
 /**
- * Summary: Hosts the near-eye live/replay debug page with ONNX segmentation validation controls.
- * @return Main single-activity entry for the MVP.
+ * Summary: Hosts the remote RTSP live page, hidden demo mode entry, and replay UI.
+ * @return Main single-activity entry for the remote streaming MVP.
  */
-class MainActivity : ComponentActivity(), EyeTrackingController.Listener {
+class MainActivity : ComponentActivity(), RemoteTrackingController.Listener {
 
     private lateinit var binding: ActivityMainBinding
-    private lateinit var controller: EyeTrackingController
+    private lateinit var controller: RemoteTrackingController
 
-    private var currentParams = Pupil2DParams()
-    private var openCvReady: Boolean = false
-    private var desiredMode: EyeSourceMode = EyeSourceMode.LIVE
-    private var latestRenderState: EyeTrackingRenderState? = null
-    private var roiSelectionEnabled: Boolean = false
+    private val preferences by lazy {
+        getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+    }
+    private val demoTapTimestamps = ArrayDeque<Long>()
+    private var latestState: RemoteRenderState? = null
+    private var userSeekingReplay: Boolean = false
 
-    private val permissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestPermission(),
-    ) { granted ->
-        if (granted) {
-            if (openCvReady && desiredMode == EyeSourceMode.LIVE) {
-                controller.startLive()
-                binding.textOpenCvStatus.text = getString(R.string.camera_starting)
-            }
-        } else {
-            binding.textOpenCvStatus.text = getString(R.string.camera_permission_required)
-            clearOverlay(getString(R.string.camera_permission_required))
+    private val demoVideoLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri == null) return@registerForActivityResult
+        try {
+            contentResolver.takePersistableUriPermission(
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION,
+            )
+        } catch (_: Throwable) {
+            // Some providers do not offer persistable access; best effort is enough for MVP.
         }
+        controller.startDemoVideo(uri, resolveDisplayName(uri) ?: "demo_video")
     }
 
     /**
-     * Summary: Creates the page and wires the tracking controller.
+     * Summary: Creates the page, restores saved inputs, and wires the remote controller.
      * @param savedInstanceState Saved activity state.
      * @return Unit.
      */
@@ -57,43 +67,35 @@ class MainActivity : ComponentActivity(), EyeTrackingController.Listener {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        binding.cameraPreview.scaleType = PreviewView.ScaleType.FILL_CENTER
-        controller = EyeTrackingController(
+        controller = RemoteTrackingController(
             context = this,
-            lifecycleOwner = this,
-            previewView = binding.cameraPreview,
+            playerView = binding.playerView,
             listener = this,
         )
 
+        restoreInputs()
         initializeControls()
-        initializeOpenCv()
-        applyModeVisibility(desiredMode)
-        updateActionButtons(null)
-        clearOverlay(getString(R.string.status_processing))
+        renderIdleState()
     }
 
     /**
-     * Summary: Restarts live mode after the activity returns to foreground.
+     * Summary: Resumes live playback when the activity returns to foreground.
      * @param none No parameters.
      * @return Unit.
      */
     override fun onResume() {
         super.onResume()
-        if (!openCvReady) return
-        if (desiredMode == EyeSourceMode.LIVE && hasCameraPermission()) {
-            controller.startLive()
-            binding.textOpenCvStatus.text = getString(R.string.camera_starting)
-        }
+        controller.resume()
     }
 
     /**
-     * Summary: Stops active camera/replay work while keeping controller state.
+     * Summary: Pauses live playback and timers while the activity is backgrounded.
      * @param none No parameters.
      * @return Unit.
      */
     override fun onPause() {
-        super.onPause()
         controller.pause()
+        super.onPause()
     }
 
     /**
@@ -107,507 +109,375 @@ class MainActivity : ComponentActivity(), EyeTrackingController.Listener {
     }
 
     /**
-     * Summary: Receives render updates from the tracking controller.
-     * @param state Latest render state.
+     * Summary: Renders the latest controller state into the UI.
+     * @param state Latest remote render state.
      * @return Unit.
      */
-    override fun onRenderState(state: EyeTrackingRenderState) {
-        latestRenderState = state
-        desiredMode = state.mode
+    override fun onRenderState(state: RemoteRenderState) {
+        latestState = state
+        val isReplay = state.mode == RemoteMode.REPLAY
 
-        val isReplay = state.mode == EyeSourceMode.REPLAY
-        applyModeVisibility(state.mode)
+        binding.playerView.visibility = if (isReplay) View.GONE else View.VISIBLE
+        binding.replayImageView.visibility = if (isReplay) View.VISIBLE else View.GONE
         binding.replayImageView.setImageBitmap(if (isReplay) state.replayBitmap else null)
+        binding.textStatusHeader.text = buildHeaderText(state)
+        binding.textPrimaryInfo.text = buildPrimaryInfo(state)
+        binding.textSecondaryInfo.text = buildSecondaryInfo(state)
+        binding.textDebugLog.text = state.debugLog.ifBlank { getString(R.string.label_debug_log_empty) }
 
-        binding.textFrameInfo.text = buildFrameInfo(state)
-        binding.textResult2d.text = buildResultText(state)
-        binding.textDebugInfo.text = buildDebugText(state)
-        binding.textOpenCvStatus.text = buildHeaderStatus(state)
-        binding.segmentationPreviewPanel.visibility = if (state.segmentationUiState.selectedRoi != null) {
-            View.VISIBLE
+        val gaze = state.gazeSample.takeIf { it?.isDrawable() == true }
+        binding.overlayView.updateRemoteOverlay(
+            frameWidth = state.videoWidth.coerceAtLeast(1),
+            frameHeight = state.videoHeight.coerceAtLeast(1),
+            gazeUvX = gaze?.screenUvX?.toFloat(),
+            gazeUvY = gaze?.screenUvY?.toFloat(),
+            statusText = buildOverlayText(state),
+        )
+
+        if (isReplay) {
+            binding.markerTimelineView.updateTimeline(
+                markerTimestampsNs = state.markerTimestampsNs,
+                durationNs = state.sessionDurationNs,
+                currentTimestampNs = state.currentTimestampNs,
+            )
         } else {
-            View.GONE
+            binding.markerTimelineView.clear()
         }
-        binding.imageSegmentationGrayPreview.setImageBitmap(
-            state.segmentationUiState.latestResult?.grayscalePreviewBitmap,
-        )
-        binding.imageSegmentationOverlayPreview.setImageBitmap(
-            state.segmentationUiState.latestResult?.blendedPreviewBitmap,
-        )
 
-        binding.overlayView.updateOverlay(
-            frameWidth = state.observation.frameWidth,
-            frameHeight = state.observation.frameHeight,
-            detectionRoi = if (state.detection2dEnabled) state.observation.debug.effectiveRoi else null,
-            manualSegmentationRoi = state.manualSegmentationRoi,
-            pupil = state.observation.pupil,
-            segmentationOverlayBitmap = state.segmentationUiState.latestResult?.overlayBitmap,
-            statusText = buildOverlayStatus(state),
-            mirrorHorizontally = state.mirrorHorizontally,
-        )
+        if (!userSeekingReplay) {
+            binding.seekReplayTimeline.progress = calculateReplayProgress(state)
+        }
 
-        updateActionButtons(state)
+        updateButtons(state)
     }
 
     /**
-     * Summary: Receives controller status or error messages.
-     * @param message Human-readable status text.
+     * Summary: Shows a short controller message to the user.
+     * @param message Human-readable controller message.
      * @return Unit.
      */
     override fun onControllerMessage(message: String) {
-        binding.textOpenCvStatus.text = message
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
     }
 
     /**
-     * Summary: Initializes UI event listeners and the parameter sliders.
+     * Summary: Initializes UI listeners for live control, replay control, and hidden demo mode.
      * @param none No parameters.
      * @return Unit.
      */
     private fun initializeControls() {
-        binding.buttonLive.setOnClickListener {
-            setRoiSelectionEnabled(false)
-            desiredMode = EyeSourceMode.LIVE
-            applyModeVisibility(desiredMode)
-            updateActionButtons(latestRenderState)
-            ensureLiveMode()
+        binding.buttonConnect.setOnClickListener {
+            val rtspUrl = binding.editRtspUrl.text.toString().trim()
+            val udpPort = parseUdpPort()
+            if (rtspUrl.isBlank() || !rtspUrl.startsWith("rtsp://", ignoreCase = true)) {
+                showToast(getString(R.string.message_invalid_rtsp))
+                return@setOnClickListener
+            }
+            if (udpPort == null) {
+                showToast(getString(R.string.message_invalid_udp))
+                return@setOnClickListener
+            }
+            saveInputs(rtspUrl, udpPort)
+            controller.connectRtsp(rtspUrl, udpPort)
         }
+
         binding.buttonRecord.setOnClickListener {
             controller.toggleRecording()
         }
+
+        binding.buttonAddMarker.setOnClickListener {
+            controller.addMarker()
+        }
+
         binding.buttonReplay.setOnClickListener {
-            setRoiSelectionEnabled(false)
-            desiredMode = EyeSourceMode.REPLAY
-            applyModeVisibility(desiredMode)
-            updateActionButtons(latestRenderState)
             controller.startReplayLatest()
         }
-        binding.buttonResetTracking.setOnClickListener {
-            controller.resetTracking()
+
+        binding.buttonDisconnect.setOnClickListener {
+            controller.disconnect()
         }
+
         binding.buttonReplayPlayPause.setOnClickListener {
             controller.toggleReplayPlayback()
         }
+
         binding.buttonReplayPrev.setOnClickListener {
             controller.stepReplayBackward()
         }
+
         binding.buttonReplayNext.setOnClickListener {
             controller.stepReplayForward()
         }
+
         binding.buttonReplaySpeed.setOnClickListener {
             controller.toggleReplaySpeed()
         }
-        binding.buttonToggleDebug.setOnClickListener {
-            controller.toggleDebugOverlay()
-        }
-        binding.buttonSegmentationModel.setOnClickListener {
-            controller.toggleSegmentationModel()
-        }
-        binding.buttonSegmentationBackend.setOnClickListener {
-            controller.toggleSegmentationBackend()
-        }
-        binding.buttonToggle2d.setOnClickListener {
-            controller.toggle2dDetection()
-        }
-        binding.buttonSetSegmentationRoi.setOnClickListener {
-            setRoiSelectionEnabled(!roiSelectionEnabled)
-            binding.textOpenCvStatus.text = if (roiSelectionEnabled) {
-                getString(R.string.segmentation_roi_hint)
-            } else {
-                latestRenderState?.segmentationUiState?.statusMessage ?: getString(R.string.status_processing)
-            }
-        }
-        binding.buttonClearSegmentationRoi.setOnClickListener {
-            setRoiSelectionEnabled(false)
-            controller.clearManualSegmentationRoi()
-        }
-        binding.overlayView.setOnManualRoiSelectedListener { roiBounds ->
-            setRoiSelectionEnabled(false)
-            controller.setManualSegmentationRoi(roiBounds)
-        }
 
-        binding.seekIntensityRange.progress = currentParams.intensityRange
-        binding.seekPupilMin.progress = currentParams.pupilSizeMin
-        binding.seekPupilMax.progress = currentParams.pupilSizeMax
-        binding.seekCannyThreshold.progress = currentParams.cannyThreshold
-
-        val listener = object : SeekBar.OnSeekBarChangeListener {
+        binding.seekReplayTimeline.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             /**
-             * Summary: Updates detector params when the user changes a slider.
-             * @param seekBar Updated seek bar.
-             * @param progress Current slider progress.
+             * Summary: Tracks whether the current seek event comes from a user drag.
+             * @param seekBar Active seek bar.
+             * @param progress Current seek progress.
              * @param fromUser Whether the change came from direct user input.
              * @return Unit.
              */
-            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                normalizeSeekBounds()
-                currentParams = currentParams.copy(
-                    intensityRange = binding.seekIntensityRange.progress.coerceIn(0, binding.seekIntensityRange.max),
-                    pupilSizeMin = binding.seekPupilMin.progress.coerceAtLeast(4),
-                    pupilSizeMax = binding.seekPupilMax.progress.coerceAtLeast(binding.seekPupilMin.progress.coerceAtLeast(4)),
-                    cannyThreshold = binding.seekCannyThreshold.progress.coerceAtLeast(1),
-                )
-                updateParameterLabels()
-                controller.updateParams(currentParams)
+            override fun onProgressChanged(
+                seekBar: SeekBar?,
+                progress: Int,
+                fromUser: Boolean,
+            ) {
+                if (fromUser) {
+                    userSeekingReplay = true
+                }
             }
 
             /**
-             * Summary: Ignored callback required by SeekBar.
-             * @param seekBar Updated seek bar.
+             * Summary: Marks the replay seek bar as actively dragged by the user.
+             * @param seekBar Active seek bar.
              * @return Unit.
              */
-            override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {
+                userSeekingReplay = true
+            }
 
             /**
-             * Summary: Ignored callback required by SeekBar.
-             * @param seekBar Updated seek bar.
+             * Summary: Seeks replay to the final dragged progress value.
+             * @param seekBar Active seek bar.
              * @return Unit.
              */
-            override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
-        }
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {
+                val currentSeekBar = seekBar ?: return
+                controller.seekReplayToProgress(currentSeekBar.progress, currentSeekBar.max)
+                userSeekingReplay = false
+            }
+        })
 
-        binding.seekIntensityRange.setOnSeekBarChangeListener(listener)
-        binding.seekPupilMin.setOnSeekBarChangeListener(listener)
-        binding.seekPupilMax.setOnSeekBarChangeListener(listener)
-        binding.seekCannyThreshold.setOnSeekBarChangeListener(listener)
-        updateParameterLabels()
+        binding.textStatusHeader.setOnClickListener {
+            handleDemoUnlockTap()
+        }
     }
 
     /**
-     * Summary: Initializes OpenCV and starts live mode when possible.
+     * Summary: Restores the last-used RTSP URL and UDP port from local preferences.
      * @param none No parameters.
      * @return Unit.
      */
-    private fun initializeOpenCv() {
-        openCvReady = OpenCVLoader.initLocal()
-        if (!openCvReady) {
-            binding.textOpenCvStatus.text = getString(R.string.opencv_failed)
-            clearOverlay(getString(R.string.opencv_failed))
-            return
-        }
-        binding.textOpenCvStatus.text = getString(R.string.opencv_ready)
-        ensureLiveMode()
+    private fun restoreInputs() {
+        binding.editRtspUrl.setText(
+            preferences.getString(PREF_RTSP_URL, getString(R.string.default_rtsp_url)),
+        )
+        binding.editUdpPort.setText(
+            preferences.getString(PREF_UDP_PORT, getString(R.string.default_udp_port)),
+        )
     }
 
     /**
-     * Summary: Requests permission if needed and starts live mode otherwise.
+     * Summary: Saves the latest RTSP URL and UDP port for the next launch.
+     * @param rtspUrl RTSP URL to persist.
+     * @param udpPort UDP port to persist.
+     * @return Unit.
+     */
+    private fun saveInputs(
+        rtspUrl: String,
+        udpPort: Int,
+    ) {
+        preferences.edit()
+            .putString(PREF_RTSP_URL, rtspUrl)
+            .putString(PREF_UDP_PORT, udpPort.toString())
+            .apply()
+    }
+
+    /**
+     * Summary: Parses the UDP port input into a valid port number.
+     * @param none No parameters.
+     * @return Parsed UDP port or null when invalid.
+     */
+    private fun parseUdpPort(): Int? {
+        val text = binding.editUdpPort.text.toString().trim()
+        val port = text.toIntOrNull() ?: return null
+        return port.takeIf { it in 1..65535 }
+    }
+
+    /**
+     * Summary: Opens the hidden demo picker after enough quick taps on the status text.
      * @param none No parameters.
      * @return Unit.
      */
-    private fun ensureLiveMode() {
-        if (!openCvReady) return
-        if (hasCameraPermission()) {
-            controller.startLive()
-            binding.textOpenCvStatus.text = getString(R.string.camera_starting)
-        } else {
-            permissionLauncher.launch(Manifest.permission.CAMERA)
+    private fun handleDemoUnlockTap() {
+        val now = SystemClock.elapsedRealtime()
+        while (demoTapTimestamps.isNotEmpty() && now - demoTapTimestamps.first() > DEMO_TAP_WINDOW_MS) {
+            demoTapTimestamps.removeFirst()
+        }
+        demoTapTimestamps.addLast(now)
+        if (demoTapTimestamps.size >= DEMO_TAP_COUNT) {
+            demoTapTimestamps.clear()
+            showToast(getString(R.string.message_demo_picker_hint))
+            demoVideoLauncher.launch(arrayOf("video/*"))
         }
     }
 
     /**
-     * Summary: Returns whether camera permission is already granted.
-     * @param none No parameters.
-     * @return True when live mode can start immediately.
+     * Summary: Resolves a user-friendly file name for the selected demo video URI.
+     * @param uri Selected demo URI.
+     * @return Display name or null when unavailable.
      */
-    private fun hasCameraPermission(): Boolean {
-        return ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+    private fun resolveDisplayName(uri: Uri): String? {
+        if (uri.scheme == "file") {
+            return uri.lastPathSegment
+        }
+        contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+            val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            if (nameIndex >= 0 && cursor.moveToFirst()) {
+                return cursor.getString(nameIndex)
+            }
+        }
+        return uri.lastPathSegment
     }
 
     /**
-     * Summary: Keeps the min/max slider pair in a valid range.
-     * @param none No parameters.
-     * @return Unit.
-     */
-    private fun normalizeSeekBounds() {
-        val minValue = binding.seekPupilMin.progress.coerceAtLeast(4)
-        if (binding.seekPupilMin.progress != minValue) {
-            binding.seekPupilMin.progress = minValue
-        }
-        if (binding.seekPupilMax.progress < minValue) {
-            binding.seekPupilMax.progress = minValue
-        }
-        if (binding.seekCannyThreshold.progress <= 0) {
-            binding.seekCannyThreshold.progress = 1
-        }
-    }
-
-    /**
-     * Summary: Refreshes the visible slider labels.
+     * Summary: Renders the initial idle UI before the first controller callback arrives.
      * @param none No parameters.
      * @return Unit.
      */
-    private fun updateParameterLabels() {
-        binding.labelIntensityRange.text = "Intensity Range: ${currentParams.intensityRange}"
-        binding.labelPupilMin.text = "Pupil Min: ${currentParams.pupilSizeMin}px"
-        binding.labelPupilMax.text = "Pupil Max: ${currentParams.pupilSizeMax}px"
-        binding.labelCannyThreshold.text = "Canny Threshold: ${currentParams.cannyThreshold}"
+    private fun renderIdleState() {
+        binding.textStatusHeader.text = getString(R.string.status_idle)
+        binding.textPrimaryInfo.text = getString(R.string.label_primary_info)
+        binding.textSecondaryInfo.text = getString(R.string.label_secondary_info)
+        binding.textDebugLog.text = getString(R.string.label_debug_log_empty)
+        binding.overlayView.clear(getString(R.string.status_idle))
+        binding.markerTimelineView.clear()
+        updateButtons(null)
     }
 
     /**
-     * Summary: Clears the overlay when no render state is available yet.
-     * @param statusText Initial status text.
-     * @return Unit.
+     * Summary: Builds the top status text shown above the controls.
+     * @param state Latest controller state.
+     * @return Formatted header string.
      */
-    private fun clearOverlay(statusText: String) {
-        binding.overlayView.clear(statusText)
-        binding.segmentationPreviewPanel.visibility = View.GONE
-        binding.imageSegmentationGrayPreview.setImageBitmap(null)
-        binding.imageSegmentationOverlayPreview.setImageBitmap(null)
-        binding.textFrameInfo.text = getString(R.string.label_frame_info)
-        binding.textResult2d.text = getString(R.string.label_result_2d)
-        binding.textDebugInfo.text = getString(R.string.label_debug_info)
-    }
-
-    /**
-     * Summary: Switches preview visibility between live camera and replay image.
-     * @param mode Target source mode.
-     * @return Unit.
-     */
-    private fun applyModeVisibility(mode: EyeSourceMode) {
-        val isReplay = mode == EyeSourceMode.REPLAY
-        binding.cameraPreview.visibility = if (isReplay) View.GONE else View.VISIBLE
-        binding.replayImageView.visibility = if (isReplay) View.VISIBLE else View.GONE
-        if (!isReplay) {
-            binding.replayImageView.setImageBitmap(null)
+    private fun buildHeaderText(state: RemoteRenderState): String {
+        val sourceLabel = when (state.sourceKind) {
+            RemoteSourceKind.RTSP -> "RTSP"
+            RemoteSourceKind.DEMO_VIDEO -> "Demo"
+            null -> "Idle"
         }
+        val modeLabel = state.mode.name.lowercase(Locale.US)
+        val recordingLabel = when {
+            !state.isRecording -> "record=off"
+            state.recordingSessionActive -> "record=active"
+            else -> "record=armed"
+        }
+        return "$sourceLabel | $modeLabel | $recordingLabel | ${state.statusMessage}"
     }
 
     /**
-     * Summary: Enables or disables manual ROI selection on the overlay.
-     * @param enabled Whether drag selection should be active.
-     * @return Unit.
+     * Summary: Builds the primary info block under the preview.
+     * @param state Latest controller state.
+     * @return Formatted primary info text.
      */
-    private fun setRoiSelectionEnabled(enabled: Boolean) {
-        roiSelectionEnabled = enabled
-        binding.overlayView.setSelectionEnabled(enabled)
-        updateActionButtons(latestRenderState)
-    }
-
-    /**
-     * Summary: Builds the frame information block.
-     * @param state Latest render state.
-     * @return Formatted frame information text.
-     */
-    private fun buildFrameInfo(state: EyeTrackingRenderState): String {
-        val observation = state.observation
-        val replayText = if (state.mode == EyeSourceMode.REPLAY) {
+    private fun buildPrimaryInfo(state: RemoteRenderState): String {
+        val markerCount = state.markerTimestampsNs.size
+        val replayText = if (state.mode == RemoteMode.REPLAY) {
             " | replay=${state.replayFrameIndex + 1}/${state.replayFrameCount}"
         } else {
             ""
         }
-        val sessionText = state.latestSessionId?.let { " | session=$it" } ?: ""
+        val sourceValue = when (state.sourceKind) {
+            RemoteSourceKind.RTSP -> state.rtspUrl ?: "n/a"
+            RemoteSourceKind.DEMO_VIDEO -> state.demoSourceDisplayName ?: "demo_video"
+            null -> "n/a"
+        }
         return buildString {
-            append("Frame Info")
+            append("Primary Info")
             append('\n')
-            append("mode=${state.mode.name.lowercase(Locale.US)}")
-            append(" | source=${state.sourceTag}")
+            append("source=$sourceValue")
             append(replayText)
-            append(sessionText)
             append('\n')
-            append("frameId=${observation.frameId}")
-            append(" | tsNs=${observation.captureTimestampNs}")
+            append("udp=${state.udpPort ?: "--"} | session=${state.latestSessionId ?: "--"}")
             append('\n')
-            append("size=${observation.frameWidth}x${observation.frameHeight}")
+            append("video=${state.videoWidth}x${state.videoHeight} | markers=$markerCount")
+            append('\n')
+            append("time=${formatMs(state.currentTimestampNs)} / ${formatMs(state.sessionDurationNs)}")
         }
     }
 
     /**
-     * Summary: Builds the combined result block shown under the preview.
-     * @param state Latest render state.
-     * @return Formatted result text.
+     * Summary: Builds the secondary info block with gaze and playback details.
+     * @param state Latest controller state.
+     * @return Formatted secondary info text.
      */
-    private fun buildResultText(state: EyeTrackingRenderState): String {
-        val observation = state.observation
-        val segmentation = state.segmentationUiState
-        val segmentationResult = segmentation.latestResult
-        val pupil = observation.pupil
-
+    private fun buildSecondaryInfo(state: RemoteRenderState): String {
+        val gaze = state.gazeSample
         return buildString {
-            append("Results")
+            append("Secondary Info")
             append('\n')
-            if (!state.detection2dEnabled) {
-                append("2d disabled | segmentation-only mode")
-            } else if (pupil == null) {
-                append("2d quality=${observation.quality.name} | no ellipse")
+            append("playerReady=${state.playerReady} | speed=${state.replaySpeed.label}")
+            append('\n')
+            append("lastFrame=${state.lastRecordedFrameId ?: "--"} | lastTs=${state.lastRecordedTimestampNs ?: "--"}")
+            append('\n')
+            if (gaze == null) {
+                append("gaze=none")
             } else {
                 append(
                     String.format(
                         Locale.US,
-                        "2d quality=%s | conf=%.3f | center=(%.1f, %.1f)",
-                        observation.quality.name,
-                        pupil.confidence,
-                        pupil.ellipse.centerX,
-                        pupil.ellipse.centerY,
+                        "gaze valid=%s | uv=(%s, %s)",
+                        gaze.trackingValid,
+                        gaze.screenUvX?.let { "%.3f".format(Locale.US, it) } ?: "--",
+                        gaze.screenUvY?.let { "%.3f".format(Locale.US, it) } ?: "--",
                     ),
-                )
-            }
-            append('\n')
-            if (segmentationResult == null) {
-                append("seg status=${segmentation.statusMessage}")
-            } else {
-                append(
-                    "seg roi=${segmentationResult.roiWidth}x${segmentationResult.roiHeight}" +
-                        " | iris=${segmentationResult.hasIris} | pupil=${segmentationResult.hasPupil}",
                 )
                 append('\n')
                 append(
                     String.format(
                         Locale.US,
-                        "seg total=%.2fms | fps(now)=%.2f | fps(avg)=%.2f",
-                        segmentationResult.timing.totalMs(),
-                        segmentation.performanceSummary.latestOutputFps,
-                        segmentation.performanceSummary.averageOutputFps,
+                        "fps=%s | inference=%sms | calib=%s",
+                        gaze.fps?.let { "%.2f".format(Locale.US, it) } ?: "--",
+                        gaze.inferenceMs?.let { "%.2f".format(Locale.US, it) } ?: "--",
+                        gaze.calibrationState ?: "--",
                     ),
                 )
+                append('\n')
+                append("status=${gaze.statusMessage ?: "--"}")
             }
         }
     }
 
     /**
-     * Summary: Builds the debug block shown under the result text.
-     * @param state Latest render state.
-     * @return Formatted debug text.
+     * Summary: Builds the short overlay text shown on top of the preview.
+     * @param state Latest controller state.
+     * @return Formatted overlay string.
      */
-    private fun buildDebugText(state: EyeTrackingRenderState): String {
-        if (!state.debugOverlayEnabled) {
-            return buildString {
-                append("Debug Info")
-                append('\n')
-                append("hidden")
-            }
-        }
-
-        val debug = state.observation.debug
-        val segmentation = state.segmentationUiState
-        val segmentationResult = segmentation.latestResult
-        val roiText = segmentation.selectedRoi?.let { roi ->
-            "${roi.minX},${roi.minY} -> ${roi.maxX},${roi.maxY}"
-        } ?: "none"
-
-        return buildString {
-            append("Segmentation Debug")
-            append('\n')
-            append("2d=")
-            append(if (state.detection2dEnabled) "on" else "off")
-            append('\n')
-            append("model=${segmentation.config.modelType.displayName}")
-            append(" | backend=${segmentation.config.backend.displayName}")
-            append(" | session=${segmentation.sessionStatus.displayName}")
-            append('\n')
-            append("status=${segmentation.statusMessage}")
-            append('\n')
-            append("roi=$roiText")
-            append('\n')
-            if (segmentationResult != null) {
-                append(
-                    String.format(
-                        Locale.US,
-                        "frame ms pre=%.2f inf=%.2f post=%.2f",
-                        segmentationResult.timing.preprocessMs,
-                        segmentationResult.timing.inferenceMs,
-                        segmentationResult.timing.postprocessMs,
-                    ),
-                )
-                append('\n')
-            } else {
-                append("frame ms pre=-- inf=-- post=--")
-                append('\n')
-            }
-            append(
-                String.format(
-                    Locale.US,
-                    "avg(%d) ms pre=%.2f inf=%.2f post=%.2f total=%.2f",
-                    segmentation.performanceSummary.frameCount,
-                    segmentation.performanceSummary.averagePreprocessMs,
-                    segmentation.performanceSummary.averageInferenceMs,
-                    segmentation.performanceSummary.averagePostprocessMs,
-                    segmentation.performanceSummary.averageTotalMs,
-                ),
-            )
-            append('\n')
-            append(
-                String.format(
-                    Locale.US,
-                    "seg fps now=%.2f | avg=%.2f",
-                    segmentation.performanceSummary.latestOutputFps,
-                    segmentation.performanceSummary.averageOutputFps,
-                ),
-            )
-            append('\n')
-            if (state.detection2dEnabled) {
-                append("2d roi=${debug.effectiveRoi.minX},${debug.effectiveRoi.minY} -> ${debug.effectiveRoi.maxX},${debug.effectiveRoi.maxY}")
-                append('\n')
-                append(
-                    "2d support=${debug.supportPixelCount}" +
-                        " | finalEdge=${debug.finalEdgeCount}" +
-                        " | dark=${debug.darkPixelCount}",
-                )
-            } else {
-                append("2d disabled for current run")
-            }
-        }
-    }
-
-    /**
-     * Summary: Builds the short overlay text rendered on top of the preview.
-     * @param state Latest render state.
-     * @return Overlay status string.
-     */
-    private fun buildOverlayStatus(state: EyeTrackingRenderState): String {
-        val segmentation = state.segmentationUiState
-        val segmentationResult = segmentation.latestResult
+    private fun buildOverlayText(state: RemoteRenderState): String {
+        val gaze = state.gazeSample
         return buildString {
             append(state.mode.name)
             append(" | ")
-            append(if (state.detection2dEnabled) "2D on" else "2D off")
-            append(" | ")
-            append(segmentation.config.modelType.displayName)
-            append(" | ")
-            append(segmentation.config.backend.displayName)
+            append(state.sourceKind?.name ?: "NO_SOURCE")
             append('\n')
-            append("seg=")
-            append(segmentation.sessionStatus.displayName)
+            append(if (state.isRecording) "record on" else "record off")
             append(" | ")
-            append(
-                segmentation.selectedRoi?.let { "${it.width()}x${it.height()}" } ?: "roi not set",
-            )
-            append('\n')
-            append(
-                if (segmentationResult != null) {
+            append(state.statusMessage)
+            if (gaze != null) {
+                append('\n')
+                append(
                     String.format(
                         Locale.US,
-                        "iris=%s | pupil=%s | %.2ffps",
-                        segmentationResult.hasIris,
-                        segmentationResult.hasPupil,
-                        segmentation.performanceSummary.latestOutputFps,
-                    )
-                } else {
-                    segmentation.statusMessage
-                },
-            )
+                        "tracking=%s | fps=%s",
+                        gaze.trackingValid,
+                        gaze.fps?.let { "%.2f".format(Locale.US, it) } ?: "--",
+                    ),
+                )
+            }
         }
-    }
-
-    /**
-     * Summary: Builds the header status line shown above the buttons.
-     * @param state Latest render state.
-     * @return Short status text.
-     */
-    private fun buildHeaderStatus(state: EyeTrackingRenderState): String {
-        val recordText = if (state.isRecording) " | recording" else ""
-        val qualityText = if (state.detection2dEnabled) state.observation.quality.name else "2D_OFF"
-        return "${state.sourceTag} | $qualityText | ${state.segmentationUiState.sessionStatus.displayName}$recordText"
     }
 
     /**
      * Summary: Updates action button labels and enabled states.
-     * @param state Latest render state if available.
+     * @param state Latest render state when available.
      * @return Unit.
      */
-    private fun updateActionButtons(state: EyeTrackingRenderState?) {
-        val effectiveMode = state?.mode ?: desiredMode
-        val isReplay = effectiveMode == EyeSourceMode.REPLAY
-        val segmentationState = state?.segmentationUiState
-
+    private fun updateButtons(state: RemoteRenderState?) {
+        val isReplay = state?.mode == RemoteMode.REPLAY
         binding.buttonRecord.text = getString(
             if (state?.isRecording == true) R.string.action_stop_record else R.string.action_record,
         )
@@ -615,26 +485,45 @@ class MainActivity : ComponentActivity(), EyeTrackingController.Listener {
             if (state?.replayPlaying == true) R.string.action_pause else R.string.action_play,
         )
         binding.buttonReplaySpeed.text = state?.replaySpeed?.label ?: getString(R.string.action_speed_normal)
-        binding.buttonToggleDebug.text = getString(
-            if (state?.debugOverlayEnabled != false) R.string.action_hide_debug else R.string.action_show_debug,
-        )
-        binding.buttonSegmentationModel.text =
-            "Model: ${segmentationState?.config?.modelType?.displayName ?: "B16 INT8"}"
-        binding.buttonSegmentationBackend.text =
-            "Backend: ${segmentationState?.config?.backend?.displayName ?: "NNAPI"}"
-        binding.buttonToggle2d.text = getString(
-            if (state?.detection2dEnabled != false) R.string.action_2d_on else R.string.action_2d_off,
-        )
-        binding.buttonSetSegmentationRoi.text = getString(
-            if (roiSelectionEnabled) R.string.action_cancel_roi else R.string.action_set_roi,
-        )
 
+        binding.buttonRecord.isEnabled = state?.mode == RemoteMode.LIVE && state.sourceKind != null
+        binding.buttonAddMarker.isEnabled = state?.mode == RemoteMode.LIVE && state.recordingSessionActive
+        binding.buttonDisconnect.isEnabled = state?.sourceKind != null || state?.mode == RemoteMode.REPLAY
+        binding.seekReplayTimeline.isEnabled = isReplay && (state?.replayFrameCount ?: 0) > 0
         binding.buttonReplayPlayPause.isEnabled = isReplay
         binding.buttonReplayPrev.isEnabled = isReplay
         binding.buttonReplayNext.isEnabled = isReplay
         binding.buttonReplaySpeed.isEnabled = isReplay
-        binding.buttonRecord.isEnabled = openCvReady && effectiveMode == EyeSourceMode.LIVE
-        binding.buttonSegmentationModel.isEnabled = (segmentationState?.availableModelTypes?.size ?: 0) > 1
-        binding.buttonClearSegmentationRoi.isEnabled = state?.manualSegmentationRoi != null
+    }
+
+    /**
+     * Summary: Converts the current replay timestamp into seek bar progress.
+     * @param state Latest controller state.
+     * @return Seek bar progress in the configured range.
+     */
+    private fun calculateReplayProgress(state: RemoteRenderState): Int {
+        if (state.mode != RemoteMode.REPLAY || state.sessionDurationNs <= 0L) {
+            return 0
+        }
+        val fraction = state.currentTimestampNs.toDouble() / state.sessionDurationNs.toDouble()
+        return (binding.seekReplayTimeline.max * fraction.coerceIn(0.0, 1.0)).roundToInt()
+    }
+
+    /**
+     * Summary: Formats a nanosecond duration into milliseconds for UI text.
+     * @param durationNs Duration in nanoseconds.
+     * @return Formatted milliseconds string.
+     */
+    private fun formatMs(durationNs: Long): String {
+        return String.format(Locale.US, "%.0fms", durationNs / 1_000_000.0)
+    }
+
+    /**
+     * Summary: Shows a short toast message.
+     * @param message User-facing message.
+     * @return Unit.
+     */
+    private fun showToast(message: String) {
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
     }
 }

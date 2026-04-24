@@ -52,6 +52,15 @@ class DetectionOverlayView @JvmOverloads constructor(
         color = Color.CYAN
         style = Paint.Style.FILL
     }
+    private val gazeFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.RED
+        style = Paint.Style.FILL
+    }
+    private val gazeStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        style = Paint.Style.STROKE
+        strokeWidth = 4f
+    }
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
         textSize = 32f
@@ -69,6 +78,8 @@ class DetectionOverlayView @JvmOverloads constructor(
     private var pupil: PupilDatum2D? = null
     private var segmentationOverlayBitmap: Bitmap? = null
     private var statusText: String = ""
+    private var gazeUvX: Float? = null
+    private var gazeUvY: Float? = null
     private var mirrorHorizontally: Boolean = false
     private var selectionEnabled: Boolean = false
     private var dragStartX: Int? = null
@@ -105,6 +116,36 @@ class DetectionOverlayView @JvmOverloads constructor(
         this.segmentationOverlayBitmap = segmentationOverlayBitmap
         this.statusText = statusText
         this.mirrorHorizontally = mirrorHorizontally
+        invalidate()
+    }
+
+    /**
+     * Summary: Updates the simplified remote streaming overlay.
+     * @param frameWidth Current source frame width.
+     * @param frameHeight Current source frame height.
+     * @param gazeUvX Normalized gaze X coordinate.
+     * @param gazeUvY Normalized gaze Y coordinate.
+     * @param statusText Status text rendered on top of the preview.
+     * @return Unit.
+     */
+    fun updateRemoteOverlay(
+        frameWidth: Int,
+        frameHeight: Int,
+        gazeUvX: Float?,
+        gazeUvY: Float?,
+        statusText: String,
+    ) {
+        this.frameWidth = frameWidth
+        this.frameHeight = frameHeight
+        detectionRoi = null
+        manualSegmentationRoi = null
+        draftSegmentationRoi = null
+        pupil = null
+        segmentationOverlayBitmap = null
+        this.statusText = statusText
+        this.gazeUvX = gazeUvX
+        this.gazeUvY = gazeUvY
+        mirrorHorizontally = false
         invalidate()
     }
 
@@ -153,6 +194,8 @@ class DetectionOverlayView @JvmOverloads constructor(
         pupil = null
         segmentationOverlayBitmap = null
         this.statusText = statusText
+        gazeUvX = null
+        gazeUvY = null
         mirrorHorizontally = false
         selectionEnabled = false
         dragStartX = null
@@ -267,6 +310,13 @@ class DetectionOverlayView @JvmOverloads constructor(
                 canvas.drawOval(ovalRect, ellipsePaint)
                 canvas.restore()
                 canvas.drawCircle(centerX, centerY, 6f, centerPaint)
+            }
+
+            if (gazeUvX != null && gazeUvY != null) {
+                val gazeCenterX = contentRect.left + (gazeUvX!!.coerceIn(0f, 1f) * contentRect.width())
+                val gazeCenterY = contentRect.top + (gazeUvY!!.coerceIn(0f, 1f) * contentRect.height())
+                canvas.drawCircle(gazeCenterX, gazeCenterY, 18f, gazeStrokePaint)
+                canvas.drawCircle(gazeCenterX, gazeCenterY, 12f, gazeFillPaint)
             }
         }
 

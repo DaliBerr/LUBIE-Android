@@ -1,125 +1,147 @@
 # LUBIE
 
-## 当前状态
-- 当前是一个 Android 原生 Kotlin MVP，用于验证“近眼 IR 单目输入”的 2D 检测链路与 ONNX segmentation 推理链路。
-- 当前页面使用 XML Layout，支持 `Live / Record / Replay / Reset` 工作流，以及 segmentation 的 `Model / Backend / Set ROI / Clear ROI / 2D On-Off` 调试控件。
-- 当前仍保留经典 `pupil-detectors` 风格的 2D 检测实现，同时已接入 ONNX Runtime Android，用于验证 `unet_b16_384x240_int8_qdq.onnx` 与 `unet_b8_384x240_int8_qdq.onnx` 的真机分割推理。
-- 当前 segmentation 路径使用手动框选的 eye ROI，不与 gaze、椭圆拟合或几何估计耦合。
-- 当前支持关闭 2D 检测，进入 segmentation-only 验证模式，便于单独评估量化模型时延与可视化结果。
-- 当前调试文本会显式显示 segmentation 的当前输出 FPS 与平均输出 FPS，便于评估模型在真机上的实际产出速率。
+## Current Status
+- The app is currently an Android native Kotlin MVP. The main flow centers on `RTSP video + UDP gaze JSON` provided by a remote Raspberry Pi.
+- The current home page uses XML Layout, and the main UI supports:
+  - Connect RTSP
+  - Automatically start local recording
+  - Add marker
+  - Replay the most recent session
+  - Disconnect
+- The app is currently locked to portrait orientation. The main video area is displayed at `16:9`, and full-screen display mode is used to avoid cropping the frame.
+- A hidden demo mode is supported: continuously tapping the top status text `5` times opens the system video picker and imports a local video as the demo source.
+- The demo mode does not receive UDP and no longer draws a gaze dot. It is intended for demo material where the overlay is already embedded in the video.
+- The repository still retains the old local eye-tracking, OpenCV, CameraX, 2D detector, and segmentation code and files, but the home page no longer exposes these entry points.
 
-## 运行方式
-- 在 Android Studio 打开工程并执行 Gradle Sync。
-- 运行 `app` 模块后，首页会初始化 OpenCV 并请求相机权限。
-- 授权后默认进入 `Live` 模式，优先使用前置相机；如设备没有前置相机，会回退到后置相机。
-- 当前 segmentation 调试按钮包括：
-  - `Model`
-  - `Backend`
-  - `Set ROI`
-  - `Clear ROI`
-  - `2D On / 2D Off`
-- `Model` 按钮会在当前已打包的模型之间热切换，并在切换后懒加载对应 ORT session。
-- 当前 segmentation 调试流程为：
-  - 进入 `Live` 或 `Replay`
-  - 如需纯模型验证，可先点击 `2D: On/Off` 关闭 2D
-  - 点击 `Set ROI`
-  - 在预览层拖拽框选 eye ROI
-- 观察主预览 overlay、右上角两个小窗、session 状态和 timing 文本
-- 观察结果区与调试区中的 `fps(now)` / `fps(avg)`，用于判断模型输出帧率
-- 右上角两个 segmentation 小窗当前分别显示：
-  - `ROI Gray`：送入模型前的灰度 ROI，已 resize 到 `384x240`
-  - `Seg Overlay`：灰度 ROI 与 argmax 分割结果叠加后的预览图
-- 页面顶部调试按钮当前包括：
-  - `Live`
-  - `Record`
-  - `Replay`
-  - `Reset`
-  - `Play / Pause / Prev / Next / 0.25x / 1x`
-  - `Show Debug / Hide Debug`
+## How to Run
+- Open the project in Android Studio and run Gradle Sync.
+- After running the `app` module, the home page stays on the remote video page by default, and no camera permission is requested.
+- The current page is fixed to portrait orientation.
+- Enter the Raspberry Pi RTSP address in the `RTSP URL` input box, and enter the gaze UDP port in the `UDP Port` input box.
+- After tapping `Connect`:
+  - The page uses libVLC `VLCVideoLayout` to play the RTSP video
+  - RTSP is currently handled by libVLC for stream pulling and decoding, using VLC's RTSP/RTP processing pipeline
+  - UDP starts receiving gaze JSON
+  - Local recording starts automatically after the first frame is received
+- Tap `Add Marker` to write a marker into the current recording session.
+- Tap `Replay` to load the most recently recorded session and enter local playback mode.
+- Hidden demo mode flow:
+  - Tap the top status text `5` times in a row
+  - Select a local `video/*` file
+  - The page switches to demo source playback and also starts automatic recording, marker support, and replay support
 
-## 数据流
-- `CameraXEyeFrameSource` 或 `RecordedEyeFrameSource` 输出 `EyeFrame(frameId, timestampNs, width, height, grayMat, sourceTag)`。
-- `EyeTrackingController` 使用单线程串行执行：
-  - 取帧
-  - ROI 状态机
-  - 2D pupil detection
-  - 手动 segmentation ROI 推理
-  - 质量分类
-  - 录制写盘
-  - 回放调度
-  - UI 回调
-- 当 `2D` 被关闭时，主链路会跳过 `Pupil2DDetector`，仅保留 segmentation 路径与录制/回放/UI 更新。
-- 2D 输出当前统一收敛为 `PupilObservation2D`：
-  - `frameId`
-  - `captureTimestampNs`
-  - `eyeId`
-  - `frameWidth / frameHeight`
-  - `pupil: PupilDatum2D?`
-  - `quality: PupilQualityState`
-  - `debug: Pupil2DDebugInfo`
-- segmentation 输入契约当前固定为：
-  - 输入名：`input`
-  - 输入形状：`[1, 1, 240, 384]`
-  - 输入类型：`float32`
-  - 预处理：手动 ROI 灰度图、双线性 resize 到 `384x240`、除以 `255f`
-- segmentation 输出契约当前固定为：
-  - 输出名：`logits`
-  - 输出形状：`[1, 4, 240, 384]`
-  - 后处理：`argmax`
-  - 关键类别：`iris=2`、`pupil=3`
-- segmentation 可视化当前包括三种形式：
-  - 主预览上的 ROI 透明 overlay
-  - `ROI Gray` 小窗
-  - `Seg Overlay` 小窗
+## Data Flow
+- Live mode is currently managed entirely by `RemoteTrackingController`:
+  - RTSP or local demo video playback
+  - UDP gaze listening
+  - `TextureView` frame capture at a fixed `30 fps`
+  - session recording
+  - marker recording
+  - replay scheduling
+  - UI render state callbacks
+- Under RTSP mode, the UDP payload is currently parsed using the following structure:
+  - `screen_uv`
+  - `tracking_valid`
+  - `fps`
+  - `inference_ms`
+  - `calibration_state`
+  - `status_message`
+  - and other synchronization / calibration / feature-related fields
+- Currently, a gaze dot is drawn on the video overlay only when:
+  - `tracking_valid == true`
+  - and `screen_uv` is not empty
+- In demo mode, gaze is always empty. The overlay only shows status text and does not draw gaze points.
 
-## 核心模块
-- `app/src/main/java/Aquin/lubie/MainActivity.kt`
-  - 负责 OpenCV 初始化、权限申请、按钮事件、手动 ROI 交互与调试页展示。
-- `app/src/main/java/Aquin/lubie/tracking/pipeline/EyeTrackingController.kt`
-  - 负责 live/record/replay 工作流，以及 2D 与 segmentation 的串行处理链路。
-- `app/src/main/java/Aquin/lubie/tracking/pipeline/Pupil2DDetector.kt`
-  - 执行经典 2D detector 风格的 coarse ROI、轮廓筛选、support pixel refit 和 confidence 计算。
-- `app/src/main/java/Aquin/lubie/tracking/segmentation/EyeSegmentationRunner.kt`
-  - 负责 ORT session 懒加载、模型预处理、ONNX 推理、argmax、主预览 overlay 与小窗位图生成。
-- `app/src/main/java/Aquin/lubie/tracking/segmentation/ModelAssetRepository.kt`
-  - 负责将 `assets/models/` 下的 ONNX 模型复制到 `files/models/` 后供 ORT 加载。
-- `app/src/main/java/Aquin/lubie/ui/DetectionOverlayView.kt`
-  - 绘制 pupil ROI、手动 segmentation ROI、segmentation overlay、中心点和调试文本。
-
-## 模型资源
-- 当前 app 默认打包的模型资源位于 `app/src/main/assets/models/`。
-- 当前已打包：
-  - `unet_b16_384x240_int8_qdq.onnx`
-  - `unet_b8_384x240_int8_qdq.onnx`
-- 当前实现支持可选的 FP32 对照模型：
-  - `unet_b16_384x240_fp32.onnx`
-  - `unet_b16_384x240_fp32.onnx.data`
-- 如果某个模型资源未打包，调试页的 `Model` 按钮会自动跳过该模型，只在当前可用模型之间切换。
-
-## 录制与回放
-- 录制文件写入 app 私有目录 `files/eye_sessions/<sessionId>/`。
-- 当前每个 session 目录包含：
+## Recording and Replay
+- Recording is currently written uniformly into the app-private directory `files/remote_sessions/<sessionId>/`.
+- Each session directory currently contains:
   - `session.json`
   - `metadata.jsonl`
-  - `frames/000001.png ...`
-- replay 读取最近一次 session，使用原始 `timestampNs` 驱动播放节奏，并复用同一条处理链重新输出当前调试结果。
-- segmentation 在 replay 模式下也可用，适合固定同一段输入做 `FP32/INT8` 与 `CPU/NNAPI` 对照验证。
+  - `markers.jsonl`
+  - `frames/000000.jpg ...`
+- `session.json` currently records:
+  - `sourceKind`
+  - `sourceLabel`
+  - `frameWidth / frameHeight`
+  - `rtspUrl`
+  - `demoSourceDisplayName`
+  - `udpPort`
+- `metadata.jsonl` currently records each frame:
+  - `frameId`
+  - `timestampNs`
+  - `fileName`
+  - `width / height`
+  - `sourceKind`
+  - `gazeSample`
+- `markers.jsonl` currently records each line:
+  - `timestampNs`
+  - `frameId`
+- Replay currently reads only the most recent session.
+- Replay currently supports:
+  - `Play / Pause`
+  - `Prev / Next`
+  - `0.25x / 1x`
+  - dragging the progress bar to seek
+  - marker-highlighted timeline
+- RTSP session replay reuses the gaze snapshot saved during recording and redraws the overlay.
+- Demo session replay does not draw gaze. It only shows video frames and the marker timeline.
 
-## 测试
-- 本地单元测试当前覆盖：
-  - ROI clamp、归一化、split、confidence 数学逻辑
-  - ROI 状态机从 `INIT -> FOLLOW -> RECOVERY`
-  - `PupilQualityState` 分类规则
-  - `PupilObservation2D` 字段契约
-  - segmentation timing 平均值逻辑
-  - session/metadata 文本编解码
-- 当前已验证以下命令可通过：
+## Core Modules
+- `app/src/main/java/Aquin/lubie/MainActivity.kt`
+  - Responsible for RTSP input, the hidden demo mode entry point, main button events, replay dragging, and UI text rendering.
+- `app/src/main/java/Aquin/lubie/remote/RemoteTrackingController.kt`
+  - Responsible for live / replay state switching, libVLC playback, UDP gaze handling, 30fps recording, markers, and replay scheduling.
+- `app/src/main/java/Aquin/lubie/remote/UdpGazeReceiver.kt`
+  - Responsible for UDP socket reception and gaze JSON parsing callbacks.
+- `app/src/main/java/Aquin/lubie/remote/RemoteSessionStore.kt`
+  - Responsible for remote session directory creation, metadata / marker encoding and decoding, and frame-sequence writing.
+- `app/src/main/java/Aquin/lubie/remote/RemoteReplaySource.kt`
+  - Responsible for reading the most recent remote session and stepping through replay and seek operations by timestamp.
+- `app/src/main/java/Aquin/lubie/ui/DetectionOverlayView.kt`
+  - Responsible for drawing the gaze dot and status text on the live / replay preview.
+- `app/src/main/java/Aquin/lubie/ui/MarkerTimelineView.kt`
+  - Responsible for drawing marker positions and the currently highlighted marker on the replay progress bar.
+
+## Dependencies and Permissions
+- The current main flow additionally uses:
+  - `org.videolan.android:libvlc-all`
+- The permission currently used by the main flow in `AndroidManifest.xml` is:
+  - `android.permission.INTERNET`
+- The app no longer requests camera permission.
+
+## Testing
+- Local unit tests currently cover:
+  - UDP gaze JSON parsing
+  - degraded behavior when `screen_uv=null`
+  - remote session / metadata / marker JSON encoding and decoding
+  - replay 30fps time base
+  - replay seek positioning logic
+  - session duration calculation
+- The repository root currently provides a PC-side RTSP probe script:
+  - `rtsp_probe.py`
+  - Example: `python rtsp_probe.py rtsp://192.168.1.48:8554/fpv --transport udp --show-sdp`
+  - Purpose: print `OPTIONS / DESCRIBE / SETUP / PLAY / RTP` logs to help distinguish path errors, transport issues, and server-side no-data issues
+- The repository root also provides a local RTSP noise-source script:
+  - `rtsp_noise_server.py`
+  - Example: `python rtsp_noise_server.py --port 8554 --path android_noise`
+  - Purpose: start an embedded RTSP server on the PC. It prefers to convert the real video file in the repository root, `test.mp4` by default, into `720p / 30fps / H.264 yuv420p` RTP data, then emits `RTP/UDP` or `RTP over RTSP/TCP` according to the client's SETUP request. If no usable video file exists, it falls back to a random noise source so Android-side troubleshooting can separate "material / encoding problems", "streaming-side problems", and "Android receiving-side problems"
+  - The script currently defaults to `--source auto`:
+    - If `test.mp4` exists in the repository root, it is used directly as the RTSP video source
+    - If a local video is specified with `--input-file <path>`, that file is preferred
+    - If no usable real video is available, it automatically falls back to the random noise source
+  - To force real video, use: `python rtsp_noise_server.py --source file --input-file test.mp4`
+  - To force random noise, use: `python rtsp_noise_server.py --source noise`
+  - The script currently opens a local `ffplay` preview window automatically, making it easy to compare PC-side stream smoothness with Android-side stream smoothness directly
+  - To disable the local preview window, use: `python rtsp_noise_server.py --port 8554 --path android_noise --no-preview`
+  - The embedded RTSP server currently supports multiple clients connecting at the same time, and supports both `RTP/UDP` and `RTP over RTSP/TCP` video transport. The local `ffplay` preview window uses TCP by default, while Android currently prefers UDP
+- The following commands have currently been verified as working:
   - `./gradlew.bat :app:compileDebugKotlin`
+  - `./gradlew.bat :app:testDebugUnitTest`
   - `./gradlew.bat :app:assembleDebug`
 
-## 已知边界
-- 当前只实现 2D 子系统，3D detector 仍是接口占位，没有实现 gaze mapping 或 fixation detection。
-- 当前 segmentation 首轮只做 `argmax + overlay`，还没有接入最大连通域、3x3 close/open、椭圆拟合等桌面版后处理。
-- 当前 live 输入仍是手机摄像头模拟，不等同于真实近眼 IR 相机效果。
-- 当前 replay 只读取最近一次 session，不提供 session 列表页。
-- 当前没有实现网络视频源、FPV/world camera、双相机对时、3D 标定或 gaze 叠加。
+## Known Limits
+- Replay currently reads only the most recent session and does not provide a session list page.
+- "Save video" still follows the MVP path and writes a local `30 fps` JPEG frame sequence instead of MP4.
+- The recording frame source is `TextureView`. If device performance is insufficient, frame writes are proactively skipped so that preview and the main thread remain smooth first.
+- RTSP and demo mode share the same recording / replay structure, but demo mode does not receive UDP.
+- The old local eye-tracking pipeline code is still retained in the repository. If we later need to fully clean up dependencies and entry points, we will need a separate consolidation pass.

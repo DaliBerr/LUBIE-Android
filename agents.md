@@ -1,58 +1,58 @@
-你正在协助开发一个 Android 原生应用。
+You are helping develop an Android native app.
 
-项目背景：
-- 这是一个 Android 原生项目,基于Android 11。
-- 工程由 Android Studio 创建和维护。
-- 日常代码主要在 VSCode 中编辑。
-- 编译、运行、真机调试、Gradle Sync 主要在 Android Studio 中完成。
-- 当前项目重点是 OpenCV 和图像识别功能验证，不追求复杂或美观的 UI。
-- 优先目标是快速实现“最小可运行原型（MVP）”，而不是过度设计。
+Project background:
+- This is an Android native project based on Android 11.
+- The project is created and maintained in Android Studio.
+- Day-to-day coding is mainly done in VSCode.
+- Compilation, running, device debugging, and Gradle Sync are mainly done in Android Studio.
+- The current focus of the project is validating OpenCV and image recognition features. Complex or polished UI is not the goal.
+- The top priority is to quickly implement a "minimum viable prototype (MVP)", not to overdesign.
 
-技术与实现约束：
-- 优先使用 Kotlin 编写 Android 代码。
-- UI 优先使用传统 XML Layout，不要默认引入 Jetpack Compose，除非我明确要求。
-- 优先保持项目结构简单、标准、易于编译。
-- 除非我明确要求，不要引入 Flutter、React Native、NDK、C++、JNI、多模块架构、复杂依赖注入框架。
-- 对于 OpenCV，优先采用最简单、最稳定、最容易集成的方案。
-- 在没有必要的情况下，不要进行大规模重构、不要修改包结构、不要随意移动文件。
-- 不要为了“更优雅”而把简单问题复杂化。
+Technical and implementation constraints:
+- Prefer Kotlin for Android code.
+- Prefer traditional XML Layout for the UI. Do not introduce Jetpack Compose by default unless I explicitly ask for it.
+- Keep the project structure simple, standard, and easy to compile.
+- Unless I explicitly ask for them, do not introduce Flutter, React Native, NDK, C++, JNI, multi-module architecture, or complex dependency injection frameworks.
+- For OpenCV, prefer the simplest, most stable, and easiest-to-integrate solution.
+- When it is not necessary, do not perform large-scale refactors, do not change package structure, and do not move files casually.
+- Do not make simple problems more complicated in the name of being "more elegant".
 
-你的工作方式：
-1. 始终先理解当前目标，只围绕当前任务做最小必要修改。
-2. 优先保证代码可以编译、逻辑清晰、改动可控。
-3. 每次回答时，先简要说明你准备修改什么，以及为什么这样改。
-4. 涉及多个文件时，明确列出将修改哪些文件。
-5. 对 Android 项目中的以下内容要特别谨慎：
+Your working style:
+1. Always understand the current goal first, and make only the minimum necessary changes for the current task.
+2. Prioritize code that can compile, has clear logic, and keeps changes under control.
+3. In every reply, briefly explain what you are preparing to change and why.
+4. When multiple files are involved, clearly list which files will be changed.
+5. Be especially careful with the following items in Android projects:
    - AndroidManifest.xml
-   - app/build.gradle 或 build.gradle.kts
-   - 权限声明
-   - SDK 版本
-   - Activity/Fragment 注册
-   - 资源文件命名
-6. 任何可能影响工程结构或构建系统的修改，必须先提醒我，再给出建议方案。
-7. 若你发现我的要求可能导致 Android 构建失败、运行崩溃、权限异常、生命周期问题或性能问题，请直接指出，不要盲目执行。
-8.  生成代码时，遵循 Android 原生开发常规，不要捏造不存在的 API 或依赖。
+   - app/build.gradle or build.gradle.kts
+   - permission declarations
+   - SDK versions
+   - Activity/Fragment registration
+   - resource file names
+6. Any change that may affect the project structure or build system must be called out to me first, followed by a suggested approach.
+7. If you find that my request may cause Android build failures, runtime crashes, permission issues, lifecycle issues, or performance problems, say so directly. Do not blindly proceed.
+8. When generating code, follow standard Android native development practices and do not invent APIs or dependencies that do not exist.
 
-代码风格要求：
-- 代码简洁、直接、注释适量。
-- 不要堆砌抽象层。
-- 函数职责尽量单一。
-- 命名清晰，避免过度缩写。
-- 若我要求你写函数，请为每个函数添加简短注释，包含 summary / param / return。
+Code style requirements:
+- Keep code concise, direct, and moderately commented.
+- Do not pile on abstraction layers.
+- Keep each function as focused on a single responsibility as possible.
+- Use clear names and avoid excessive abbreviations.
+- If I ask you to write functions, add a short comment to each function, including summary / param / return.
 
-输出格式要求：
-- 先写“思路”
-- 再写“需要修改的文件”
-- 再写“代码”
-- 最后写“注意事项”
-- 如果存在不确定项，请明确标出“待确认点”
-- 不要输出无关背景介绍，不要长篇泛泛而谈
+Output format requirements:
+- First write "Thoughts"
+- Then write "Files to Modify"
+- Then write "Code"
+- Finally write "Notes"
+- If there are uncertainties, clearly mark them as "To Be Confirmed"
+- Do not output unrelated background information or long-winded discussion
 
-## README workflow 
-- **Before task /**：优先查看 `README.md`，将其作为项目理解与路径追踪的起点。  
-- **After task /**：必须进行一次“README 是否需要更新”的检查。  
-- **Update when needed /**：当涉及核心逻辑、模块边界、启动流程、数据流、关键脚本路径变化时，更新 `README.md` 对应条目。  
-- **Write current state only /**：若与旧版本存在差异，不保留“从 AAA 变为 BBB”这类变化状态描述，只描述当前实现（例如直接写“当前支持 BBB”）。  
-- **If no update needed /**：在任务总结中明确说明“已评估，本次无需更新 README”。
+## README workflow
+- **Before task /**: First check `README.md` and use it as the starting point for project understanding and path tracking.
+- **After task /**: You must perform a check to see whether the README needs to be updated.
+- **Update when needed /**: When core logic, module boundaries, startup flow, data flow, or key script paths change, update the corresponding items in `README.md`.
+- **Write current state only /**: If there are differences from an older version, do not keep descriptions like "changed from AAA to BBB"; only describe the current implementation (for example, write "currently supports BBB" directly).
+- **If no update needed /**: Clearly state in the task summary that "I have evaluated this, and no README update is needed this time."
 
-当我给你具体任务时，请严格按上述方式协助我。
+When I give you a concrete task, please assist me strictly in the manner above.
