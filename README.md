@@ -19,8 +19,8 @@
 - 当前页面固定为竖屏。
 - 在 `RTSP URL` 输入框中填写树莓派 RTSP 地址，在 `UDP Port` 输入框中填写 gaze UDP 端口。
 - 点击 `Connect` 后：
-  - 页面使用 Media3 `PlayerView` 播放 RTSP 视频
-  - RTSP 当前使用 UDP 优先模式：先尝试 `RTP/UDP`，若 Media3 长时间收不到 UDP RTP 包，才会按其内部策略回退到 `RTP over RTSP/TCP`
+  - 页面使用 libVLC `VLCVideoLayout` 播放 RTSP 视频
+  - RTSP 当前由 libVLC 负责拉流与解码，使用 VLC 的 RTSP/RTP 处理链路
   - UDP 开始接收 gaze JSON
   - 收到首帧后自动开始本地录制
 - 点击 `Add Marker` 可在当前录制 session 中写入一个 marker。
@@ -91,7 +91,7 @@
 - `app/src/main/java/Aquin/lubie/MainActivity.kt`
   - 负责 RTSP 输入、隐藏演示模式入口、主按钮事件、回放拖动与 UI 文本渲染。
 - `app/src/main/java/Aquin/lubie/remote/RemoteTrackingController.kt`
-  - 负责 live / replay 状态切换、Media3 播放、UDP gaze、30fps 录制、marker 和 replay 调度。
+  - 负责 live / replay 状态切换、libVLC 播放、UDP gaze、30fps 录制、marker 和 replay 调度。
 - `app/src/main/java/Aquin/lubie/remote/UdpGazeReceiver.kt`
   - 负责 UDP socket 接收与 gaze JSON 解析回调。
 - `app/src/main/java/Aquin/lubie/remote/RemoteSessionStore.kt`
@@ -105,9 +105,7 @@
 
 ## 依赖与权限
 - 当前主流程额外使用：
-  - `androidx.media3:media3-exoplayer`
-  - `androidx.media3:media3-exoplayer-rtsp`
-  - `androidx.media3:media3-ui`
+  - `org.videolan.android:libvlc-all`
 - 当前 `AndroidManifest.xml` 中主流程使用的权限为：
   - `android.permission.INTERNET`
 - 当前不再申请相机权限。

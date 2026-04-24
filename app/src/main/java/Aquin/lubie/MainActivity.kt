@@ -16,7 +16,6 @@ import android.widget.SeekBar
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.media3.common.util.UnstableApi
 import java.util.ArrayDeque
 import java.util.Locale
 import kotlin.math.roundToInt
@@ -31,7 +30,6 @@ private const val DEMO_TAP_COUNT = 5
  * Summary: Hosts the remote RTSP live page, hidden demo mode entry, and replay UI.
  * @return Main single-activity entry for the remote streaming MVP.
  */
-@UnstableApi
 class MainActivity : ComponentActivity(), RemoteTrackingController.Listener {
 
     private lateinit var binding: ActivityMainBinding

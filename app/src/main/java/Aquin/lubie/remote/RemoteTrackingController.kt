@@ -7,15 +7,13 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
+import android.view.View
+import android.view.ViewGroup
 import android.view.TextureView
-import androidx.media3.common.MediaItem
-import androidx.media3.common.PlaybackException
-import androidx.media3.common.Player
-import androidx.media3.common.VideoSize
-import androidx.media3.common.util.UnstableApi
-import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.rtsp.RtspMediaSource
-import androidx.media3.ui.PlayerView
+import org.videolan.libvlc.LibVLC
+import org.videolan.libvlc.Media
+import org.videolan.libvlc.MediaPlayer
+import org.videolan.libvlc.util.VLCVideoLayout
 import java.util.ArrayDeque
 import java.util.Locale
 import java.util.concurrent.ExecutorService
@@ -29,14 +27,13 @@ private const val DEBUG_LOG_TAG = "RemoteTracking"
 /**
  * Summary: Coordinates RTSP playback, demo playback, UDP gaze reception, recording, markers, and replay.
  * @param context Application context.
- * @param playerView Shared PlayerView used for live playback.
+ * @param playerView Shared VLC video layout used for live playback.
  * @param listener UI listener that renders the latest remote state.
  * @return Single-controller coordinator for the remote streaming MVP.
  */
-@UnstableApi
 class RemoteTrackingController(
     context: Context,
-    private val playerView: PlayerView,
+    private val playerView: VLCVideoLayout,
     private val listener: Listener,
 ) {
 
@@ -106,7 +103,9 @@ class RemoteTrackingController(
     private val currentMarkerTimestamps = mutableListOf<Long>()
     private val debugLogLines = ArrayDeque<String>()
     private val controllerCreatedAtMs = SystemClock.elapsedRealtime()
-    private var lastLoggedPlaybackState: Int? = null
+    private var vlcPlayerReady: Boolean = false
+    private var lastLoggedVlcEvent: Int? = null
+    private var lastLoggedBufferingBucket: Int? = null
 
     private val frameCaptureRunnable = object : Runnable {
         override fun run() {
@@ -139,76 +138,28 @@ class RemoteTrackingController(
         }
     }
 
-    private val playerListener = object : Player.Listener {
-        override fun onPlaybackStateChanged(playbackState: Int) {
-            if (lastLoggedPlaybackState != playbackState) {
-                lastLoggedPlaybackState = playbackState
-                appendDebugLog(
-                    "Player state=${playbackStateLabel(playbackState)} " +
-                        "source=${sourceKind?.name ?: "NONE"} ready=${playbackState == Player.STATE_READY}",
-                )
-            }
-            latestStatusMessage = when (playbackState) {
-                Player.STATE_IDLE -> if (sourceKind == null) "Idle" else "Player idle"
-                Player.STATE_BUFFERING -> "Buffering live video"
-                Player.STATE_READY -> "${sourceLabelForState()} ready"
-                Player.STATE_ENDED -> if (sourceKind == RemoteSourceKind.DEMO_VIDEO) "Demo playback finished" else "Playback ended"
-                else -> latestStatusMessage
-            }
-
-            if (playbackState == Player.STATE_READY && currentMode == RemoteMode.LIVE && recordingEnabled) {
-                startFrameCaptureLoopIfNeeded()
-            }
-
-            if (playbackState == Player.STATE_ENDED &&
-                currentMode == RemoteMode.LIVE &&
-                sourceKind == RemoteSourceKind.DEMO_VIDEO
-            ) {
-                stopFrameCaptureLoop()
-                flushAndCloseRecorder(saveMessage = true)
-                recordingEnabled = false
-            }
-
-            dispatchState()
-        }
-
-        override fun onRenderedFirstFrame() {
-            appendDebugLog("First frame rendered")
-            if (currentMode == RemoteMode.LIVE && recordingEnabled) {
-                startFrameCaptureLoopIfNeeded()
-            }
-            dispatchState()
-        }
-
-        override fun onVideoSizeChanged(videoSize: VideoSize) {
-            if (videoSize.width > 0 && videoSize.height > 0) {
-                videoWidth = videoSize.width
-                videoHeight = videoSize.height
-                appendDebugLog("Video size=${videoSize.width}x${videoSize.height}")
-                dispatchState()
-            }
-        }
-
-        override fun onPlayerError(error: PlaybackException) {
-            latestStatusMessage = "Playback error: ${error.errorCodeName}"
-            stopFrameCaptureLoop()
-            appendDebugLog(buildPlaybackErrorDetail(error), error)
-            dispatchState()
-            postMessage(latestStatusMessage)
+    private val libVlc = LibVLC(
+        appContext,
+        arrayListOf(
+            "--network-caching=600",
+            "--live-caching=600",
+            "--file-caching=600",
+            "--drop-late-frames",
+            "--skip-frames",
+        ),
+    )
+    private val vlcEventListener = MediaPlayer.EventListener { event ->
+        mainHandler.post {
+            handleVlcEvent(event)
         }
     }
-
-    private val player = ExoPlayer.Builder(appContext)
-        .build()
-        .apply {
-            repeatMode = Player.REPEAT_MODE_OFF
-            playWhenReady = true
-            addListener(playerListener)
-        }
+    private val player = MediaPlayer(libVlc).apply {
+        setEventListener(vlcEventListener)
+    }
 
     init {
-        playerView.player = player
-        playerView.useController = false
+        playerView.keepScreenOn = true
+        player.attachViews(playerView, null, false, true)
         appendDebugLog("Controller initialized")
         dispatchState()
     }
@@ -223,18 +174,14 @@ class RemoteTrackingController(
         rtspUrl: String,
         udpPort: Int,
     ) {
-        appendDebugLog("Connect requested | url=$rtspUrl udp=$udpPort transport=udp-first")
-        val rtspMediaSource = RtspMediaSource.Factory()
-            .setForceUseRtpTcp(false)
-            .createMediaSource(MediaItem.fromUri(rtspUrl))
+        appendDebugLog("Connect requested | url=$rtspUrl udp=$udpPort player=libvlc")
         switchToLiveSource(
             sourceKind = RemoteSourceKind.RTSP,
             rtspUrl = rtspUrl,
             udpPort = udpPort,
             demoUri = null,
             demoName = null,
-            mediaItem = MediaItem.fromUri(rtspUrl),
-            mediaSource = rtspMediaSource,
+            mediaUri = Uri.parse(rtspUrl),
             statusMessage = "Connecting RTSP stream",
         )
         appendDebugLog("UDP receiver start | port=$udpPort")
@@ -258,8 +205,7 @@ class RemoteTrackingController(
             udpPort = null,
             demoUri = uri,
             demoName = displayName,
-            mediaItem = MediaItem.fromUri(uri),
-            mediaSource = null,
+            mediaUri = uri,
             statusMessage = "Starting demo video",
         )
     }
@@ -275,8 +221,7 @@ class RemoteTrackingController(
         stopFrameCaptureLoop()
         flushAndCloseRecorder(saveMessage = true)
         gazeReceiver.stop()
-        player.stop()
-        player.clearMediaItems()
+        stopVlcPlayback()
         sourceKind = null
         currentRtspUrl = null
         currentUdpPort = null
@@ -291,7 +236,8 @@ class RemoteTrackingController(
         latestRecordedFrameId = null
         latestRecordedTimestampNs = null
         latestStatusMessage = "Disconnected"
-        lastLoggedPlaybackState = null
+        lastLoggedVlcEvent = null
+        lastLoggedBufferingBucket = null
         dispatchState()
     }
 
@@ -367,8 +313,7 @@ class RemoteTrackingController(
         stopFrameCaptureLoop()
         flushAndCloseRecorder(saveMessage = true)
         gazeReceiver.stop()
-        player.stop()
-        player.clearMediaItems()
+        stopVlcPlayback()
         stopReplayInternal()
         latestStatusMessage = "Loading replay"
         dispatchState()
@@ -527,7 +472,11 @@ class RemoteTrackingController(
         flushAndCloseRecorder(saveMessage = false)
         gazeReceiver.stop()
         replaceReplayBitmap(null)
+        stopVlcPlayback()
+        player.setEventListener(null)
+        player.detachViews()
         player.release()
+        libVlc.release()
         workerExecutor.shutdown()
     }
 
@@ -537,16 +486,14 @@ class RemoteTrackingController(
         udpPort: Int?,
         demoUri: Uri?,
         demoName: String?,
-        mediaItem: MediaItem,
-        mediaSource: androidx.media3.exoplayer.source.MediaSource?,
+        mediaUri: Uri,
         statusMessage: String,
     ) {
         stopReplayInternal()
         stopFrameCaptureLoop()
         flushAndCloseRecorder(saveMessage = true)
         gazeReceiver.stop()
-        player.stop()
-        player.clearMediaItems()
+        stopVlcPlayback()
 
         currentMode = RemoteMode.LIVE
         this.sourceKind = sourceKind
@@ -564,18 +511,16 @@ class RemoteTrackingController(
         replaySpeed = ReplaySpeed.NORMAL
         replaceReplayBitmap(null)
         latestStatusMessage = statusMessage
-        lastLoggedPlaybackState = null
+        lastLoggedVlcEvent = null
+        lastLoggedBufferingBucket = null
         appendDebugLog(
             "Switch live source | kind=${sourceKind.name} label=${demoName ?: rtspUrl ?: "unknown"}",
         )
 
-        if (mediaSource != null) {
-            player.setMediaSource(mediaSource)
-        } else {
-            player.setMediaItem(mediaItem)
-        }
-        player.prepare()
-        player.playWhenReady = true
+        val media = buildVlcMedia(mediaUri, sourceKind)
+        player.media = media
+        media.release()
+        player.play()
         dispatchState()
     }
 
@@ -601,7 +546,7 @@ class RemoteTrackingController(
 
     private fun startFrameCaptureLoopIfNeeded() {
         if (currentMode != RemoteMode.LIVE || !recordingEnabled || sourceKind == null) return
-        if (player.playbackState != Player.STATE_READY) return
+        if (!vlcPlayerReady) return
         mainHandler.removeCallbacks(frameCaptureRunnable)
         mainHandler.post(frameCaptureRunnable)
     }
@@ -610,10 +555,110 @@ class RemoteTrackingController(
         mainHandler.removeCallbacks(frameCaptureRunnable)
     }
 
+    private fun handleVlcEvent(event: MediaPlayer.Event) {
+        when (event.type) {
+            MediaPlayer.Event.Opening -> {
+                vlcPlayerReady = false
+                latestStatusMessage = "Opening live video"
+                logVlcEvent(event)
+            }
+            MediaPlayer.Event.Buffering -> {
+                latestStatusMessage = "Buffering live video"
+                logVlcEvent(event)
+            }
+            MediaPlayer.Event.Playing -> {
+                vlcPlayerReady = true
+                latestStatusMessage = "${sourceLabelForState()} ready"
+                logVlcEvent(event)
+                startFrameCaptureLoopIfNeeded()
+            }
+            MediaPlayer.Event.Paused -> {
+                latestStatusMessage = "Playback paused"
+                logVlcEvent(event)
+            }
+            MediaPlayer.Event.Stopped -> {
+                vlcPlayerReady = false
+                latestStatusMessage = if (sourceKind == null) "Idle" else "Player stopped"
+                logVlcEvent(event)
+            }
+            MediaPlayer.Event.EndReached -> {
+                vlcPlayerReady = false
+                latestStatusMessage = if (sourceKind == RemoteSourceKind.DEMO_VIDEO) {
+                    "Demo playback finished"
+                } else {
+                    "Playback ended"
+                }
+                logVlcEvent(event)
+                if (currentMode == RemoteMode.LIVE && sourceKind == RemoteSourceKind.DEMO_VIDEO) {
+                    stopFrameCaptureLoop()
+                    flushAndCloseRecorder(saveMessage = true)
+                    recordingEnabled = false
+                }
+            }
+            MediaPlayer.Event.EncounteredError -> {
+                vlcPlayerReady = false
+                latestStatusMessage = "Playback error: libVLC"
+                stopFrameCaptureLoop()
+                appendDebugLog(buildVlcErrorDetail())
+                postMessage(latestStatusMessage)
+            }
+            MediaPlayer.Event.Vout -> {
+                vlcPlayerReady = true
+                logVlcEvent(event)
+                startFrameCaptureLoopIfNeeded()
+            }
+        }
+        dispatchState()
+    }
+
+    private fun logVlcEvent(event: MediaPlayer.Event) {
+        if (event.type == MediaPlayer.Event.Buffering) {
+            val bucket = ((event.buffering / 10f).toInt() * 10).coerceIn(0, 100)
+            if (lastLoggedVlcEvent == event.type && lastLoggedBufferingBucket == bucket) return
+            lastLoggedBufferingBucket = bucket
+        } else {
+            lastLoggedBufferingBucket = null
+            if (lastLoggedVlcEvent == event.type) return
+        }
+        lastLoggedVlcEvent = event.type
+        appendDebugLog(
+            "LibVLC event=${vlcEventLabel(event.type)} " +
+                "buffer=${String.format(Locale.US, "%.1f", event.buffering)} " +
+                "source=${sourceKind?.name ?: "NONE"} ready=$vlcPlayerReady",
+        )
+    }
+
+    private fun buildVlcMedia(
+        uri: Uri,
+        sourceKind: RemoteSourceKind,
+    ): Media {
+        return Media(libVlc, uri).apply {
+            setHWDecoderEnabled(true, false)
+            addOption(":network-caching=600")
+            addOption(":live-caching=600")
+            addOption(":file-caching=600")
+            addOption(":drop-late-frames")
+            addOption(":skip-frames")
+            if (sourceKind == RemoteSourceKind.RTSP) {
+                addOption(":rtsp-timeout=5000000")
+            }
+        }
+    }
+
+    private fun stopVlcPlayback() {
+        vlcPlayerReady = false
+        try {
+            player.stop()
+        } catch (_: Throwable) {
+            // Stop is best-effort during source switches and shutdown.
+        }
+    }
+
     private fun captureFrameIfNeeded() {
         if (currentMode != RemoteMode.LIVE || !recordingEnabled || sourceKind == null) return
+        if (!vlcPlayerReady) return
         if (frameWriteInFlight.get()) return
-        val textureView = playerView.videoSurfaceView as? TextureView ?: return
+        val textureView = findTextureViewIn(playerView) ?: return
         if (!textureView.isAvailable) return
         val bitmap = textureView.bitmap ?: return
         val sourceKindSnapshot = sourceKind ?: return
@@ -669,6 +714,17 @@ class RemoteTrackingController(
                 frameWriteInFlight.set(false)
             }
         }
+    }
+
+    private fun findTextureViewIn(view: View): TextureView? {
+        if (view is TextureView) return view
+        if (view !is ViewGroup) return null
+        for (index in 0 until view.childCount) {
+            findTextureViewIn(view.getChildAt(index))?.let { textureView ->
+                return textureView
+            }
+        }
+        return null
     }
 
     private fun flushAndCloseRecorder(saveMessage: Boolean) {
@@ -731,7 +787,7 @@ class RemoteTrackingController(
                 markerTimestampsNs = relativeMarkerTimestampsNs,
                 currentTimestampNs = relativeCurrentTimestampNs,
                 sessionDurationNs = sessionDurationNs,
-                playerReady = player.playbackState == Player.STATE_READY,
+                playerReady = vlcPlayerReady,
                 demoSourceDisplayName = demoSourceDisplayName,
                 rtspUrl = currentRtspUrl,
                 udpPort = currentUdpPort,
@@ -783,20 +839,13 @@ class RemoteTrackingController(
         }
     }
 
-    private fun buildPlaybackErrorDetail(error: PlaybackException): String {
-        val causeSummary = buildThrowableSummary(error.cause)
-        val messageSummary = error.message?.replace('\n', ' ') ?: "n/a"
+    private fun buildVlcErrorDetail(): String {
         return buildString {
-            append("Playback error | code=")
-            append(error.errorCodeName)
-            append(" | message=")
-            append(messageSummary)
-            append(" | cause=")
-            append(causeSummary)
+            append("Playback error | player=libVLC")
             append(" | source=")
             append(sourceKind?.name ?: "NONE")
-            append(" | playbackState=")
-            append(playbackStateLabel(player.playbackState))
+            append(" | ready=")
+            append(vlcPlayerReady)
             append(" | video=")
             append(videoWidth)
             append("x")
@@ -806,28 +855,17 @@ class RemoteTrackingController(
         }
     }
 
-    private fun buildThrowableSummary(throwable: Throwable?): String {
-        if (throwable == null) return "none"
-        val parts = mutableListOf<String>()
-        var current: Throwable? = throwable
-        var depth = 0
-        while (current != null && depth < 4) {
-            val typeName = current::class.java.simpleName
-            val message = current.message?.replace('\n', ' ') ?: "no-message"
-            parts.add("$typeName($message)")
-            current = current.cause
-            depth += 1
-        }
-        return parts.joinToString(" -> ")
-    }
-
-    private fun playbackStateLabel(playbackState: Int): String {
-        return when (playbackState) {
-            Player.STATE_IDLE -> "IDLE"
-            Player.STATE_BUFFERING -> "BUFFERING"
-            Player.STATE_READY -> "READY"
-            Player.STATE_ENDED -> "ENDED"
-            else -> "UNKNOWN($playbackState)"
+    private fun vlcEventLabel(eventType: Int): String {
+        return when (eventType) {
+            MediaPlayer.Event.Opening -> "OPENING"
+            MediaPlayer.Event.Buffering -> "BUFFERING"
+            MediaPlayer.Event.Playing -> "PLAYING"
+            MediaPlayer.Event.Paused -> "PAUSED"
+            MediaPlayer.Event.Stopped -> "STOPPED"
+            MediaPlayer.Event.EndReached -> "ENDED"
+            MediaPlayer.Event.EncounteredError -> "ERROR"
+            MediaPlayer.Event.Vout -> "VOUT"
+            else -> "UNKNOWN($eventType)"
         }
     }
 
